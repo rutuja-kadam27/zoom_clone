@@ -1152,12 +1152,6 @@ export default function VideoMeetComponent() {
                                                             </MuiAvatar>
                                                         </Box>
                                                     )}
-                                                    {isSharing && (
-                                                        <Box className={styles.screenShareOverlay}>
-                                                            <ScreenShareIcon sx={{ fontSize: '4rem', color: '#ff9839', mb: 1 }} />
-                                                            <Typography variant="h6">Presenting Screen</Typography>
-                                                        </Box>
-                                                    )}
                                                 </Box>
                                             );
                                         })()
@@ -1320,13 +1314,6 @@ export default function VideoMeetComponent() {
                                                     <MuiAvatar sx={{ width: 70, height: 70, fontSize: '2rem', bgcolor: 'rgba(255,255,255,0.1)' }}>
                                                         {displayName.substring(0,2).toUpperCase()}
                                                     </MuiAvatar>
-                                                </Box>
-                                            )}
-
-                                            {isSharing && (
-                                                <Box className={styles.screenShareOverlay}>
-                                                    <ScreenShareIcon sx={{ fontSize: '3rem', color: '#ff9839', mb: 1 }} />
-                                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>Presenting Screen</Typography>
                                                 </Box>
                                             )}
                                         </Box>
