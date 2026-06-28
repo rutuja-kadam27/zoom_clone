@@ -194,7 +194,7 @@ export default function VideoMeetComponent() {
             }
         });
 
-    }, [videos, faceMlReady, video, screen, participantsStatus]);
+    }, [videos, faceMlReady, video, screen, participantsStatus, askForUsername]);
 
     const formatTime = (totalSeconds) => {
         const hrs = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
