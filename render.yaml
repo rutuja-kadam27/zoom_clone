@@ -12,6 +12,8 @@ services:
         value: mongodb+srv://rutujakadam2727_db_user:HmSQP1m0ECQMM34R@clustervc.xwhgwpb.mongodb.net/?appName=ClusterVc
       - key: PORT
         value: 10000
+      - key: NODE_VERSION
+        value: 20
 
   # Frontend Static Site
   - type: web
@@ -21,3 +23,6 @@ services:
     rootDir: frontend
     buildCommand: npm install && npm run build
     publishDir: build
+    envVars:
+      - key: NODE_VERSION
+        value: 20
