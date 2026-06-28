@@ -1,61 +1,457 @@
+/* Modern Dark Theme Design System & Glassmorphism */
+
 .meetVideoContainer {
     position: relative;
     height: 100vh;
-    background: rgb(1, 4, 48);
-}
-
-.meetUserVideo {
-    position: absolute;
-    bottom: 10vh;
-    height: 20vh;
-    width: auto;
-    left: 0;
-    border-radius: 20px;
-}
-
-.buttonContainers {
-    position: absolute;
     width: 100vw;
-    bottom: 0;
-    text-align: center;
-}
-
-.buttonContainers svg {
-    font-size: 3rem;
-}
-
-.conferenceView { 
-
+    background: radial-gradient(circle at center, #1e1b4b 0%, #0f172a 100%);
+    color: #f3f4f6;
+    font-family: 'Outfit', 'Inter', sans-serif;
+    overflow: hidden;
     display: flex;
-    
-    padding: 10px;
-    gap: 10px;
+    flex-direction: column;
 }
 
-.conferenceView  video {
-    width: 40vw;
-    height: 20vh;
-    min-width: 30vw;
-    border-radius: 10px;
+/* --- LOBBY SECTION --- */
+.lobbyContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    padding: 20px;
+    box-sizing: border-box;
 }
 
-.chatRoom {
-    position: absolute;
-    height: 90vh;
-    right: 0;
-    background: white;
-    border-radius: 10px;
-    width: 30vw;
-    padding-inline: 20px;
+.lobbyCard {
+    background: rgba(15, 23, 42, 0.65) !important;
+    backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 24px !important;
+    padding: 40px;
+    width: 100%;
+    max-width: 500px;
+    text-align: center;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4) !important;
 }
 
-.chatContainer {
+.lobbyTitle {
+    font-weight: 700 !important;
+    margin-bottom: 24px !important;
+    background: linear-gradient(135deg, #ff9839 0%, #ff5e62 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.lobbyPreviewContainer {
     position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #030712;
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+}
+
+.lobbyLoading {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     height: 100%;
 }
 
+.lobbyVideo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* Mirror local video */
+}
 
-.chattingArea {
+.lobbyMediaIndicators {
     position: absolute;
-    bottom: 0;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    padding: 6px 12px;
+    border-radius: 30px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.lobbyForm {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.lobbyInput .MuiOutlinedInput-root {
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.lobbyInput .MuiOutlinedInput-notchedOutline {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.lobbyInput :global .Mui-focused .MuiOutlinedInput-notchedOutline {
+    border-color: #ff9839 !important;
+}
+
+.lobbyButton {
+    background: linear-gradient(135deg, #ff9839 0%, #e65100 100%) !important;
+    color: white !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    font-weight: 600 !important;
+    text-transform: none !important;
+    font-size: 1.1rem !important;
+    box-shadow: 0 4px 14px rgba(255, 152, 57, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+.lobbyButton:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(255, 152, 57, 0.5) !important;
+}
+
+
+/* --- MEETING CALL SECTION --- */
+.mainCallLayout {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+}
+
+.videoWorkspace {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    position: relative;
+    padding: 24px;
+    padding-bottom: 110px; /* Space for controls dock */
+    box-sizing: border-box;
+}
+
+.videoGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+}
+
+/* If there are more than 2-3 participants, adjust max columns */
+@media (min-width: 768px) {
+    .videoGrid {
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    }
+}
+
+.videoCard {
+    position: relative;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 18px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    transition: transform 0.3s ease, border-color 0.3s ease;
+}
+
+.videoCard:hover {
+    transform: scale(1.01);
+    border-color: rgba(255, 152, 57, 0.4);
+}
+
+.videoElement {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #030712;
+}
+
+/* Mirror the local video element */
+.videoCard:first-child .videoElement {
+    transform: scaleX(-1);
+}
+
+.videoLabel {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(8px);
+    padding: 4px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    max-width: 80%;
+    z-index: 5;
+}
+
+.videoMutedOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #1f2937;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2;
+}
+
+.videoMutedOverlay h6 {
+    background: linear-gradient(135deg, #ff9839 0%, #ff5e62 100%);
+    color: white;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.8rem;
+    box-shadow: 0 8px 24px rgba(255, 94, 98, 0.4);
+    border: 3px solid rgba(255,255,255,0.15);
+}
+
+
+/* --- CONTROLS DOCK --- */
+.controlsDock {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 40px;
+    padding: 10px 24px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+    transition: all 0.3s ease;
+}
+
+.controlBtn {
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: #e5e7eb !important;
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 50% !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.controlBtn:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+    transform: scale(1.08);
+}
+
+.controlBtn svg {
+    font-size: 1.5rem;
+}
+
+.btnMuted {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: #f87171 !important;
+    border: 1px solid rgba(239, 68, 68, 0.3) !important;
+}
+
+.btnMuted:hover {
+    background: rgba(239, 68, 68, 0.3) !important;
+}
+
+.btnActive {
+    background: rgba(255, 152, 57, 0.2) !important;
+    color: #ff9839 !important;
+    border: 1px solid rgba(255, 152, 57, 0.3) !important;
+}
+
+.btnActive:hover {
+    background: rgba(255, 152, 57, 0.3) !important;
+}
+
+.btnHangup {
+    background: #dc2626 !important;
+    color: white !important;
+    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4) !important;
+}
+
+.btnHangup:hover {
+    background: #b91c1c !important;
+    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.6) !important;
+}
+
+
+/* --- CHAT SIDE DRAWER --- */
+.chatDrawer {
+    width: 350px;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(16px);
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    z-index: 15;
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+    animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+.chatHeader {
+    padding: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chatHeader h6 {
+    font-weight: 600 !important;
+    color: #ff9839;
+}
+
+.chatMessageList {
+    flex-grow: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Custom scrollbar for chat message list */
+.chatMessageList::-webkit-scrollbar {
+    width: 6px;
+}
+
+.chatMessageList::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.chatMessageList::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.chatBubbleContainer {
+    display: flex;
+    flex-direction: column;
+    max-width: 80%;
+}
+
+.bubbleSelf {
+    align-self: flex-end;
+}
+
+.bubbleSelf .chatBubble {
+    background: linear-gradient(135deg, #ff9839 0%, #e65100 100%);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.bubbleSelf .chatBubbleSender {
+    align-self: flex-end;
+}
+
+.bubbleOther {
+    align-self: flex-start;
+}
+
+.bubbleOther .chatBubble {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f3f4f6;
+    border-bottom-left-radius: 4px;
+}
+
+.chatBubbleSender {
+    color: #9ca3af;
+    font-size: 0.75rem !important;
+    margin-bottom: 4px !important;
+}
+
+.chatBubble {
+    padding: 10px 14px !important;
+    border-radius: 16px !important;
+    box-shadow: none !important;
+    word-break: break-word;
+}
+
+.chatEmptyState {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    text-align: center;
+}
+
+.chatInputArea {
+    padding: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.chatInput .MuiOutlinedInput-root {
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.chatInput .MuiOutlinedInput-notchedOutline {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.chatInput :global .Mui-focused .MuiOutlinedInput-notchedOutline {
+    border-color: #ff9839 !important;
+}
+
+.chatSendBtn {
+    background: #ff9839 !important;
+    color: white !important;
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 50% !important;
+    transition: all 0.2s ease !important;
+}
+
+.chatSendBtn:hover {
+    background: #e65100 !important;
+    transform: scale(1.05);
+}
+
+.screenShareOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(8px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 3;
+    border-radius: 18px;
 }

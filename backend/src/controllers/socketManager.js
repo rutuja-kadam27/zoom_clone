@@ -80,35 +80,28 @@ export const connectToSocket = (server) => {
         })
 
         socket.on("disconnect", () => {
-
-            var diffTime = Math.abs(timeOnline[socket.id] - new Date())
-
-            var key
-
-            for (const [k, v] of JSON.parse(JSON.stringify(Object.entries(connections)))) {
-
-                for (let a = 0; a < v.length; ++a) {
-                    if (v[a] === socket.id) {
-                        key = k
-
-                        for (let a = 0; a < connections[key].length; ++a) {
-                            io.to(connections[key][a]).emit('user-left', socket.id)
+            console.log("CLIENT DISCONNECTED:", socket.id);
+            
+            for (const [roomKey, socketIds] of Object.entries(connections)) {
+                if (socketIds.includes(socket.id)) {
+                    // Notify other users in the room that this user left
+                    socketIds.forEach((id) => {
+                        if (id !== socket.id) {
+                            io.to(id).emit("user-left", socket.id);
                         }
+                    });
 
-                        var index = connections[key].indexOf(socket.id)
+                    // Remove the user from the connections array
+                    connections[roomKey] = socketIds.filter((id) => id !== socket.id);
 
-                        connections[key].splice(index, 1)
-
-
-                        if (connections[key].length === 0) {
-                            delete connections[key]
-                        }
+                    // If the room is now empty, delete it
+                    if (connections[roomKey].length === 0) {
+                        delete connections[roomKey];
                     }
                 }
-
             }
 
-
+            delete timeOnline[socket.id];
         })
 
 

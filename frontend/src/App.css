@@ -1,96 +1,329 @@
+/* Premium Global & Page Styles for Zoom Clone */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-primary: #0b0f19;
+  --bg-secondary: #111827;
+  --bg-tertiary: #1f2937;
+  --accent: #ff9839;
+  --accent-hover: #e65100;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --glass-bg: rgba(17, 24, 39, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Outfit', 'Inter', sans-serif;
+  overflow-x: hidden;
+}
+
+/* --- LANDING PAGE --- */
 .landingPageContainer {
   width: 100vw;
   height: 100vh;
-  background: url("/public/background.png");
-  background-repeat: no-repeat;
-  background-size: cover;
-  color: white;
+  background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+              radial-gradient(circle at bottom left, rgba(255, 152, 57, 0.1) 0%, transparent 40%),
+              var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
 }
 
 .landingPageContainer nav {
-  padding-inline: 1.2rem;
-  padding-block: 1.6rem;
+  padding: 1.5rem 3rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-
+  backdrop-filter: blur(12px);
+  background: rgba(11, 15, 25, 0.5);
+  border-bottom: 1px solid var(--glass-border);
 }
 
 .landingPageContainer nav h2 {
   font-size: 1.8rem;
-  font-weight: 500;
+  font-weight: 700;
+  margin: 0;
+  background: linear-gradient(135deg, #ff9839 0%, #ff5e62 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .landingPageContainer nav .navlist {
   display: flex;
-  gap: 1.6rem;
-  cursor: pointer;
+  align-items: center;
+  gap: 2rem;
+}
 
+.landingPageContainer nav .navlist p {
+  cursor: pointer;
+  font-weight: 500;
+  transition: color 0.3s ease;
+  margin: 0;
+}
+
+.landingPageContainer nav .navlist p:hover {
+  color: var(--accent);
+}
+
+.landingPageContainer nav .navlist div[role='button'] {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  padding: 0.6rem 1.4rem;
+  border-radius: 30px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.landingPageContainer nav .navlist div[role='button']:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 4px 15px rgba(255, 152, 57, 0.3);
+}
+
+.landingPageContainer nav .navlist div[role='button'] p {
+  font-weight: 600;
+}
+
+.landingPageContainer nav .navlist div[role='button']:hover p {
+  color: white;
 }
 
 .landingMainContainer {
   display: flex;
   justify-content: space-between;
-  padding-inline: 3rem;
-  height: 80vh;
   align-items: center;
+  padding: 0 6rem;
+  flex-grow: 1;
+  gap: 4rem;
 }
 
-.landingMainContainer>div:nth-child(1) {
-  font-size: 2.2rem;
+.landingMainContainer > div:nth-child(1) {
+  flex: 1.2;
 }
 
-.landingMainContainer>div:nth-child(1) div[role='button'] {
-  background: #D97500;
+.landingMainContainer h1 {
+  font-size: 3.8rem;
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0 0 1.5rem 0;
+  letter-spacing: -1px;
+}
+
+.landingMainContainer p {
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+  margin-bottom: 2.5rem;
+  line-height: 1.6;
+}
+
+.landingMainContainer div[role='button'] {
+  background: linear-gradient(135deg, #ff9839 0%, #e65100 100%);
   width: fit-content;
-  padding: 1rem;
-  border-radius: 20px;
-  margin-top: 1.9rem;
+  padding: 1rem 2.2rem;
+  border-radius: 50px;
+  box-shadow: 0 4px 20px rgba(255, 152, 57, 0.35);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.landingMainContainer>div:nth-child(1) div[role='button'] a {
+.landingMainContainer div[role='button']:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(255, 152, 57, 0.5);
+}
+
+.landingMainContainer div[role='button'] a {
   text-decoration: none;
   color: white;
-  font-size: 1.7rem;
+  font-size: 1.2rem;
+  font-weight: 700;
 }
 
-.landingMainContainer>div:nth-child(2) img {
-  height: 70vh;
-  width: auto;
+.landingMainContainer > div:nth-child(2) {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
 }
 
+.landingMainContainer > div:nth-child(2)::before {
+  content: '';
+  position: absolute;
+  width: 105%;
+  height: 105%;
+  background: radial-gradient(circle, rgba(255, 152, 57, 0.15) 0%, transparent 70%);
+  z-index: 0;
+}
+
+.landingMainContainer > div:nth-child(2) img {
+  max-width: 100%;
+  height: auto;
+  max-height: 60vh;
+  z-index: 1;
+  filter: drop-shadow(0 20px 30px rgba(0,0,0,0.5));
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-15px); }
+  100% { transform: translateY(0px); }
+}
+
+@media (max-width: 968px) {
+  .landingMainContainer {
+    flex-direction: column;
+    text-align: center;
+    padding: 3rem 2rem;
+    justify-content: center;
+  }
+  .landingMainContainer div[role='button'] {
+    margin: 0 auto;
+  }
+  .landingMainContainer > div:nth-child(2) img {
+    max-height: 40vh;
+    margin-top: 2rem;
+  }
+  .landingPageContainer nav {
+    padding: 1.2rem 1.5rem;
+  }
+}
+
+
+/* --- HOME PAGE & NAV BAR --- */
 .navBar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-inline: 20px;
-  text-align: center;
-
+  padding: 1.2rem 3rem;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(17, 24, 39, 0.4);
+  backdrop-filter: blur(12px);
 }
+
+.navBar h2 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0;
+  background: linear-gradient(135deg, #ff9839 0%, #ff5e62 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.navBar p {
+  font-weight: 500;
+  margin-left: 0.5rem;
+  color: var(--text-secondary);
+}
+
 .meetContainer {
   display: flex;
-  padding-inline: 20px;
-  height: 80vh;
-  gap: 10vw;
-  justify-content: center;
+  padding: 0 6rem;
+  height: calc(100vh - 80px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 4rem;
+  background: radial-gradient(circle at bottom right, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+              var(--bg-primary);
 }
 
-
-
 .leftPanel {
-  height: 100%;
-  display: flex;
-  align-items: center;
+  flex: 1.2;
+}
 
+.leftPanel h2 {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 2rem;
+  letter-spacing: -0.5px;
+}
+
+.leftPanel .MuiOutlinedInput-root {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.leftPanel .MuiOutlinedInput-notchedOutline {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.leftPanel .Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: var(--accent) !important;
+}
+
+.leftPanel input {
+  color: white;
+}
+
+.leftPanel button {
+  background: linear-gradient(135deg, #ff9839 0%, #e65100 100%) !important;
+  color: white !important;
+  border-radius: 12px !important;
+  padding: 14px 28px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  font-size: 1rem !important;
+  box-shadow: 0 4px 14px rgba(255, 152, 57, 0.3) !important;
+  transition: all 0.3s ease !important;
+}
+
+.leftPanel button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 152, 57, 0.5) !important;
 }
 
 .rightPanel {
+  flex: 1;
   display: flex;
+  justify-content: center;
   align-items: center;
+  position: relative;
+}
+
+.rightPanel::before {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(255, 152, 57, 0.12) 0%, transparent 65%);
 }
 
 .rightPanel > img {
-  width: 30vw;
+  width: 100%;
+  max-width: 400px;
   height: auto;
-  border-radius: 20px;
+  border-radius: 24px;
+  filter: drop-shadow(0 15px 30px rgba(0,0,0,0.4));
+  z-index: 1;
+  animation: float 6s ease-in-out infinite;
+}
+
+@media (max-width: 968px) {
+  .meetContainer {
+    flex-direction: column;
+    text-align: center;
+    padding: 3rem 2rem;
+    justify-content: center;
+    height: auto;
+    min-height: calc(100vh - 80px);
+  }
+  .leftPanel h2 {
+    font-size: 2.2rem;
+  }
+  .leftPanel div {
+    justify-content: center;
+  }
+  .rightPanel {
+    margin-top: 2rem;
+  }
+  .rightPanel > img {
+    max-width: 280px;
+  }
+  .navBar {
+    padding: 1rem 1.5rem;
+  }
 }

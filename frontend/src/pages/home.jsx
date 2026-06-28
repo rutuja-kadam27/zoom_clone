@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react'
-import withAuth from '../utils/WithAuth'
+import withAuth from '../utils/withAuth'
 import { useNavigate } from 'react-router-dom'
 import "../App.css";
 import { Button, IconButton, TextField } from '@mui/material';
