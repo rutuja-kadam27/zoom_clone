@@ -179,6 +179,7 @@
     height: 100%;
     object-fit: cover;
     background: #030712;
+    transition: object-position 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Mirror the local video element */
@@ -613,4 +614,122 @@
     border: 2px solid #ff9839 !important;
     box-shadow: 0 0 20px rgba(255, 152, 57, 0.6) !important;
     transform: scale(1.02) !important;
+}
+
+/* --- DYNAMIC GALLERY GRID --- */
+.grid1 {
+    grid-template-columns: 1fr !important;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.grid2to4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.grid5to9 {
+    grid-template-columns: repeat(3, 1fr) !important;
+}
+
+.grid10plus {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
+    overflow-y: auto;
+}
+
+/* --- SPEAKER VIEW / STAGE LAYOUT --- */
+.speakerLayout {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    gap: 20px;
+    box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+    .speakerLayout {
+        flex-direction: column;
+    }
+    .filmstrip {
+        width: 100% !important;
+        flex-direction: row !important;
+        height: 120px !important;
+        overflow-x: auto;
+        overflow-y: hidden !important;
+    }
+    .filmstripCard {
+        width: 160px !important;
+        height: 90px !important;
+        flex-shrink: 0;
+    }
+}
+
+.mainStage {
+    flex-grow: 1;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.stageCard {
+    width: 100% !important;
+    height: 100% !important;
+    aspect-ratio: auto !important;
+}
+
+.filmstrip {
+    width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+    height: 100%;
+    padding-right: 4px;
+}
+
+/* Scrollbar for filmstrip */
+.filmstrip::-webkit-scrollbar {
+    width: 4px;
+}
+.filmstrip::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}
+
+.filmstripCard {
+    width: 100% !important;
+    aspect-ratio: 16/9;
+    flex-shrink: 0;
+}
+
+/* --- PIN BUTTONS --- */
+.pinBtnActive {
+    color: #ff9839 !important;
+    background: rgba(255, 152, 57, 0.15) !important;
+}
+
+.pinBtnHover {
+    color: #ffffff !important;
+    opacity: 0;
+    transition: opacity 0.2s ease !important;
+}
+
+.videoCard:hover .pinBtnHover {
+    opacity: 1;
+}
+
+.cardStatusIconsSmall {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 5;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 4px;
+}
+
+.pinBtnSmall {
+    color: #ffffff !important;
+    padding: 2px !important;
 }

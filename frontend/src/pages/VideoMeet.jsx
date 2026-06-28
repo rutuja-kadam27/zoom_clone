@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import io from "socket.io-client";
-import { Badge, IconButton, TextField, Button, Paper, Typography, Box, CircularProgress, Avatar as MuiAvatar } from '@mui/material';
+import { Badge, IconButton, TextField, Button, Paper, Typography, Box, CircularProgress, Avatar as MuiAvatar, Menu, MenuItem } from '@mui/material';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff'
 import CallEndIcon from '@mui/icons-material/CallEnd'
@@ -17,6 +17,9 @@ import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import TimerIcon from '@mui/icons-material/Timer';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import LinkIcon from '@mui/icons-material/Link';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import GridViewIcon from '@mui/icons-material/GridView';
+import AccountBoxIcon from '@mui/icons-material/AccountBox';
 import styles from "../styles/videoComponent.module.css";
 import server from '../environment';
 
@@ -40,6 +43,10 @@ export default function VideoMeetComponent() {
     const volumesRef = useRef({});
     const localVolumeCleanupRef = useRef(null);
 
+    // MediaPipe Face Tracking refs
+    const trackersRef = useRef({});
+    const [faceMlReady, setFaceMlReady] = useState(false);
+
     const [videoAvailable, setVideoAvailable] = useState(true);
     const [audioAvailable, setAudioAvailable] = useState(true);
     const [video, setVideo] = useState(true);
@@ -47,7 +54,7 @@ export default function VideoMeetComponent() {
     const [screen, setScreen] = useState(false);
     const [screenAvailable, setScreenAvailable] = useState(false);
     
-    // Collaboration Features
+    // Collaboration & Layout Features
     const [handRaised, setHandRaised] = useState(false);
     const [recording, setRecording] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
@@ -55,6 +62,11 @@ export default function VideoMeetComponent() {
     const [notifications, setNotifications] = useState([]);
     const [participantsStatus, setParticipantsStatus] = useState({});
     const [activeSpeaker, setActiveSpeaker] = useState(null);
+
+    // Layout Modes: 'gallery' or 'speaker'
+    const [layoutMode, setLayoutMode] = useState('gallery');
+    const [pinnedParticipant, setPinnedParticipant] = useState(null);
+    const [layoutAnchorEl, setLayoutAnchorEl] = useState(null);
 
     const [showModal, setModal] = useState(false);
     const [messages, setMessages] = useState([]);
@@ -66,9 +78,32 @@ export default function VideoMeetComponent() {
     const [videos, setVideos] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Get permissions and setup local stream on mount
+    // Dynamic Script Loader for MediaPipe Face Detection
+    const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`)) {
+                resolve();
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = src;
+            script.crossOrigin = "anonymous";
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    };
+
+    // Load MediaPipe on mount
     useEffect(() => {
         getPermissions();
+        
+        loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js")
+            .then(() => {
+                console.log("MediaPipe Face Detection script loaded successfully");
+                setFaceMlReady(true);
+            })
+            .catch(e => console.error("Failed to load MediaPipe Face Detection:", e));
 
         return () => {
             cleanupCall();
@@ -103,6 +138,75 @@ export default function VideoMeetComponent() {
         setTimeout(() => {
             setNotifications(prev => prev.filter(n => n.id !== id));
         }, 4000);
+    };
+
+    // AI Auto-Framing (Face Centering) using MediaPipe
+    const startTracking = (videoElement) => {
+        if (!window.FaceDetection) return null;
+        
+        try {
+            const faceDetection = new window.FaceDetection({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+            });
+            
+            faceDetection.setOptions({
+                model: 'short', // 'short' is optimized for close-range webcam video
+                minDetectionConfidence: 0.45
+            });
+            
+            faceDetection.onResults((results) => {
+                if (results.detections && results.detections.length > 0) {
+                    // Find the bounding box that encompasses all faces
+                    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+                    results.detections.forEach(det => {
+                        const box = det.boundingBox;
+                        minX = Math.min(minX, box.xCenter - box.width / 2);
+                        minY = Math.min(minY, box.yCenter - box.height / 2);
+                        maxX = Math.max(maxX, box.xCenter + box.width / 2);
+                        maxY = Math.max(maxY, box.yCenter + box.height / 2);
+                    });
+                    
+                    const centerX = (minX + maxX) / 2;
+                    const centerY = (minY + maxY) / 2;
+                    
+                    // Convert to percentages and clamp between 10% and 90% to avoid extreme offsets
+                    const posX = Math.max(0.1, Math.min(0.9, centerX)) * 100;
+                    const posY = Math.max(0.1, Math.min(0.9, centerY)) * 100;
+                    
+                    // Apply GPU-accelerated CSS object-position for smooth panning
+                    videoElement.style.objectPosition = `${posX}% ${posY}%`;
+                } else {
+                    videoElement.style.objectPosition = '50% 50%';
+                }
+            });
+            
+            let active = true;
+            const processFrame = async () => {
+                if (!active) return;
+                // ReadyState 2 means HAVE_CURRENT_DATA (video is playing)
+                if (videoElement.readyState >= 2) {
+                    try {
+                        await faceDetection.send({ image: videoElement });
+                    } catch (e) {
+                        // Silent catch for frame-send races during transitions
+                    }
+                }
+                // Throttle to 5 FPS (every 200ms) to maintain 60fps rendering performance
+                setTimeout(() => {
+                    if (active) requestAnimationFrame(processFrame);
+                }, 200);
+            };
+            
+            requestAnimationFrame(processFrame);
+            
+            return () => {
+                active = false;
+                faceDetection.close().catch(() => {});
+            };
+        } catch (e) {
+            console.warn("Failed to initialize MediaPipe FaceDetection:", e);
+            return null;
+        }
     };
 
     // Real-Time Audio Level Analyzer for Active Speaker Detection
@@ -173,6 +277,13 @@ export default function VideoMeetComponent() {
             localVolumeCleanupRef.current();
             localVolumeCleanupRef.current = null;
         }
+        
+        // Clean up all MediaPipe trackers
+        for (let id in trackersRef.current) {
+            if (trackersRef.current[id]) trackersRef.current[id]();
+        }
+        trackersRef.current = {};
+
         for (let id in connectionsRef.current) {
             const pc = connectionsRef.current[id];
             if (pc) {
@@ -450,14 +561,13 @@ export default function VideoMeetComponent() {
 
             socketRef.current.emit('join-call', window.location.href);
 
-            // Emit our username immediately on connection
             socketRef.current.emit('user-action', 'username', username);
             socketRef.current.emit('user-action', 'video', video);
             socketRef.current.emit('user-action', 'audio', audio);
 
             socketRef.current.on('chat-message', addMessage);
 
-            // Sync peer actions (mic, camera, hand, screen, record, username)
+            // Sync peer actions
             socketRef.current.on('user-action', (fromId, actionType, value) => {
                 setParticipantsStatus(prev => ({
                     ...prev,
@@ -467,7 +577,6 @@ export default function VideoMeetComponent() {
                     }
                 }));
 
-                // Get display name (use synced username if available)
                 const displayName = actionType === 'username' ? value : (participantsStatus[fromId]?.username || `Participant (${fromId.substring(0, 4)})`);
 
                 if (actionType === 'audio') {
@@ -498,12 +607,22 @@ export default function VideoMeetComponent() {
                 delete volumesRef.current[id];
                 determineActiveSpeaker();
 
+                if (pinnedParticipant === id) {
+                    setPinnedParticipant(null);
+                }
+
                 setParticipantsStatus(prev => {
                     const next = { ...prev };
                     delete next[id];
                     return next;
                 });
                 
+                // Cleanup MediaPipe tracker for leaving user
+                if (trackersRef.current[id]) {
+                    trackersRef.current[id]();
+                    delete trackersRef.current[id];
+                }
+
                 const pc = connectionsRef.current[id];
                 if (pc) {
                     if (pc.volumeCleanup) pc.volumeCleanup();
@@ -528,7 +647,6 @@ export default function VideoMeetComponent() {
                         }).catch(e => console.error("Error creating offer:", e));
                     });
                 } else {
-                    // We are an existing user. Send our current username and status to the new user so they can sync immediately.
                     socketRef.current.emit('user-action', 'username', username);
                     socketRef.current.emit('user-action', 'video', video);
                     socketRef.current.emit('user-action', 'audio', audio);
@@ -699,6 +817,54 @@ export default function VideoMeetComponent() {
         setModal(false);
     };
 
+    // Declarative Ref Callback for video elements (forces correct stream and starts AI face tracking)
+    const videoRefCallback = (id) => (el) => {
+        // Clean up old tracker
+        if (trackersRef.current[id]) {
+            trackersRef.current[id]();
+            delete trackersRef.current[id];
+        }
+
+        if (el) {
+            const isLocal = id === 'local';
+            const stream = isLocal ? window.localStream : videos.find(v => v.socketId === id)?.stream;
+            
+            // Set stream source
+            if (stream && el.srcObject !== stream) {
+                el.srcObject = stream;
+            }
+
+            // Start AI Face Tracking only if camera is active, ML is loaded, and not screen sharing
+            const isSharing = isLocal ? screen : (participantsStatus[id]?.screen === true);
+            const isCameraActive = isLocal ? video : (participantsStatus[id]?.video !== false);
+            
+            if (faceMlReady && isCameraActive && !isSharing) {
+                const cleanup = startTracking(el);
+                if (cleanup) {
+                    trackersRef.current[id] = cleanup;
+                }
+            }
+        }
+    };
+
+    // Pin / Unpin a participant
+    const togglePinParticipant = (id) => {
+        if (pinnedParticipant === id) {
+            setPinnedParticipant(null);
+        } else {
+            setPinnedParticipant(id);
+            setLayoutMode('speaker'); // Pinning automatically switches to Speaker/Stage layout
+        }
+    };
+
+    // Calculate grid classes based on total participant count in Gallery View
+    const getGalleryGridClass = (totalCount) => {
+        if (totalCount === 1) return styles.grid1;
+        if (totalCount <= 4) return styles.grid2to4;
+        if (totalCount <= 9) return styles.grid5to9;
+        return styles.grid10plus;
+    };
+
     return (
         <Box className={styles.meetVideoContainer}>
             {/* Toast Notifications Container */}
@@ -728,12 +894,7 @@ export default function VideoMeetComponent() {
                                 </Box>
                             ) : (
                                 <video
-                                    ref={(ref) => {
-                                        localVideoref.current = ref;
-                                        if (ref && window.localStream && ref.srcObject !== window.localStream) {
-                                            ref.srcObject = window.localStream;
-                                        }
-                                    }}
+                                    ref={videoRefCallback('local')}
                                     className={styles.lobbyVideo}
                                     autoPlay
                                     muted
@@ -834,94 +995,225 @@ export default function VideoMeetComponent() {
                             </Box>
                         </Box>
 
-                        <Box className={styles.videoGrid}>
-                            {/* Local Video Card */}
-                            <Box className={`${styles.videoCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
-                                <video
-                                    ref={(ref) => {
-                                        localVideoref.current = ref;
-                                        if (ref && window.localStream && ref.srcObject !== window.localStream) {
-                                            ref.srcObject = window.localStream;
-                                        }
-                                    }}
-                                    className={styles.videoElement}
-                                    autoPlay
-                                    muted
-                                ></video>
-                                <Box className={styles.videoLabel}>
-                                    <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
-                                    <Typography variant="body2">{username} (You)</Typography>
-                                </Box>
-                                
-                                {/* Status Icons */}
-                                <Box className={styles.cardStatusIcons}>
-                                    {handRaised && <PanToolIcon className={styles.raisedHandIcon} />}
-                                    {!audio && <MicOffIcon sx={{ color: '#f44336', fontSize: '1.2rem' }} />}
+                        {/* --- DYNAMIC GRID LAYOUTS --- */}
+                        {layoutMode === 'speaker' || pinnedParticipant ? (
+                            // SPEAKER VIEW / STAGE LAYOUT (Main Stage + Filmstrip)
+                            <Box className={styles.speakerLayout}>
+                                {/* Main Stage */}
+                                <Box className={styles.mainStage}>
+                                    {pinnedParticipant === 'local' || (!pinnedParticipant && activeSpeaker === 'local') || (!pinnedParticipant && !activeSpeaker) ? (
+                                        // Local on Stage
+                                        <Box className={`${styles.videoCard} ${styles.stageCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
+                                            <video ref={videoRefCallback('local')} className={styles.videoElement} autoPlay muted></video>
+                                            <Box className={styles.videoLabel}>
+                                                <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
+                                                <Typography variant="body2">{username} (You)</Typography>
+                                            </Box>
+                                            <Box className={styles.cardStatusIcons}>
+                                                <IconButton onClick={() => togglePinParticipant('local')} size="small" className={styles.pinBtnActive}>
+                                                    <PushPinIcon sx={{ fontSize: '1.1rem' }} />
+                                                </IconButton>
+                                                {handRaised && <PanToolIcon className={styles.raisedHandIcon} />}
+                                                {!audio && <MicOffIcon sx={{ color: '#f44336', fontSize: '1.2rem' }} />}
+                                            </Box>
+                                            {!video && (
+                                                <Box className={styles.videoMutedOverlay}>
+                                                    <MuiAvatar sx={{ width: 80, height: 80, fontSize: '2.5rem', bgcolor: '#ff9839' }}>
+                                                        {username.substring(0,2).toUpperCase()}
+                                                    </MuiAvatar>
+                                                </Box>
+                                            )}
+                                            {screen && (
+                                                <Box className={styles.screenShareOverlay}>
+                                                    <ScreenShareIcon sx={{ fontSize: '4rem', color: '#ff9839', mb: 1 }} />
+                                                    <Typography variant="h6">You are presenting</Typography>
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    ) : (
+                                        // Remote Participant on Stage
+                                        (() => {
+                                            const stageId = pinnedParticipant || activeSpeaker || (videos[0]?.socketId);
+                                            const vid = videos.find(v => v.socketId === stageId);
+                                            if (!vid) return null;
+                                            const status = participantsStatus[stageId] || {};
+                                            const isMuted = status['audio'] === false;
+                                            const isCamOff = status['video'] === false;
+                                            const hasHand = status['raise-hand'] === true;
+                                            const isSharing = status['screen'] === true;
+                                            const displayName = status['username'] || `Participant (${stageId.substring(0, 4)})`;
+
+                                            return (
+                                                <Box className={`${styles.videoCard} ${styles.stageCard} ${activeSpeaker === stageId ? styles.activeSpeaker : ''}`} key={stageId}>
+                                                    <video ref={videoRefCallback(stageId)} className={styles.videoElement} autoPlay playsInline></video>
+                                                    <Box className={styles.videoLabel}>
+                                                        <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
+                                                        <Typography variant="body2">{displayName}</Typography>
+                                                    </Box>
+                                                    <Box className={styles.cardStatusIcons}>
+                                                        <IconButton onClick={() => togglePinParticipant(stageId)} size="small" className={pinnedParticipant === stageId ? styles.pinBtnActive : styles.pinBtnHover}>
+                                                            <PushPinIcon sx={{ fontSize: '1.1rem' }} />
+                                                        </IconButton>
+                                                        {hasHand && <PanToolIcon className={styles.raisedHandIcon} />}
+                                                        {isMuted && <MicOffIcon sx={{ color: '#f44336', fontSize: '1.2rem' }} />}
+                                                    </Box>
+                                                    {isCamOff && (
+                                                        <Box className={styles.videoMutedOverlay}>
+                                                            <MuiAvatar sx={{ width: 80, height: 80, fontSize: '2.5rem', bgcolor: 'rgba(255,255,255,0.1)' }}>
+                                                                {displayName.substring(0,2).toUpperCase()}
+                                                            </MuiAvatar>
+                                                        </Box>
+                                                    )}
+                                                    {isSharing && (
+                                                        <Box className={styles.screenShareOverlay}>
+                                                            <ScreenShareIcon sx={{ fontSize: '4rem', color: '#ff9839', mb: 1 }} />
+                                                            <Typography variant="h6">Presenting Screen</Typography>
+                                                        </Box>
+                                                    )}
+                                                </Box>
+                                            );
+                                        })()
+                                    )}
                                 </Box>
 
-                                {!video && (
-                                    <Box className={styles.videoMutedOverlay}>
-                                        <Typography variant="h6">{username.substring(0,2).toUpperCase()}</Typography>
-                                    </Box>
-                                )}
-                                {screen && (
-                                    <Box className={styles.screenShareOverlay}>
-                                        <ScreenShareIcon sx={{ fontSize: '3rem', color: '#ff9839', mb: 1 }} />
-                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>You are presenting</Typography>
-                                    </Box>
-                                )}
+                                {/* Sidebar Filmstrip */}
+                                <Box className={styles.filmstrip}>
+                                    {/* Local Thumbnail (if not on stage) */}
+                                    {(pinnedParticipant && pinnedParticipant !== 'local' && (pinnedParticipant || activeSpeaker !== 'local')) && (
+                                        <Box className={`${styles.videoCard} ${styles.filmstripCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
+                                            <video ref={videoRefCallback('local')} className={styles.videoElement} autoPlay muted></video>
+                                            <Box className={styles.videoLabel}>
+                                                <Typography variant="caption">{username} (You)</Typography>
+                                            </Box>
+                                            <Box className={styles.cardStatusIconsSmall}>
+                                                <IconButton onClick={() => togglePinParticipant('local')} size="small" className={styles.pinBtnSmall}>
+                                                    <PushPinIcon sx={{ fontSize: '0.8rem' }} />
+                                                </IconButton>
+                                            </Box>
+                                            {!video && (
+                                                <Box className={styles.videoMutedOverlay}>
+                                                    <MuiAvatar sx={{ width: 40, height: 40, fontSize: '1.1rem', bgcolor: '#ff9839' }}>
+                                                        {username.substring(0,2).toUpperCase()}
+                                                    </MuiAvatar>
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    )}
+
+                                    {/* Remote Thumbnails */}
+                                    {videos.map((vid) => {
+                                        const stageId = pinnedParticipant || activeSpeaker || (videos[0]?.socketId);
+                                        if (vid.socketId === stageId && pinnedParticipant) return null; // Hide if already on stage
+
+                                        const status = participantsStatus[vid.socketId] || {};
+                                        const isMuted = status['audio'] === false;
+                                        const isCamOff = status['video'] === false;
+                                        const displayName = status['username'] || `Participant (${vid.socketId.substring(0, 4)})`;
+
+                                        return (
+                                            <Box className={`${styles.videoCard} ${styles.filmstripCard} ${activeSpeaker === vid.socketId ? styles.activeSpeaker : ''}`} key={vid.socketId}>
+                                                <video ref={videoRefCallback(vid.socketId)} className={styles.videoElement} autoPlay playsInline></video>
+                                                <Box className={styles.videoLabel}>
+                                                    <Typography variant="caption">{displayName}</Typography>
+                                                </Box>
+                                                <Box className={styles.cardStatusIconsSmall}>
+                                                    <IconButton onClick={() => togglePinParticipant(vid.socketId)} size="small" className={styles.pinBtnSmall}>
+                                                        <PushPinIcon sx={{ fontSize: '0.8rem' }} />
+                                                    </IconButton>
+                                                </Box>
+                                                {isCamOff && (
+                                                    <Box className={styles.videoMutedOverlay}>
+                                                        <MuiAvatar sx={{ width: 40, height: 40, fontSize: '1.1rem', bgcolor: 'rgba(255,255,255,0.1)' }}>
+                                                            {displayName.substring(0,2).toUpperCase()}
+                                                        </MuiAvatar>
+                                                    </Box>
+                                                )}
+                                            </Box>
+                                        );
+                                    })}
+                                </Box>
                             </Box>
-
-                            {/* Remote Participant Videos */}
-                            {videos.map((vid) => {
-                                const status = participantsStatus[vid.socketId] || {};
-                                const isMuted = status['audio'] === false;
-                                const isCamOff = status['video'] === false;
-                                const hasHand = status['raise-hand'] === true;
-                                const isSharing = status['screen'] === true;
-                                const isSpeaker = activeSpeaker === vid.socketId;
-                                const displayName = status['username'] || `Participant (${vid.socketId.substring(0, 4)})`;
-
-                                return (
-                                    <Box className={`${styles.videoCard} ${isSpeaker ? styles.activeSpeaker : ''}`} key={vid.socketId}>
-                                        <video
-                                            data-socket={vid.socketId}
-                                            ref={(ref) => {
-                                                if (ref && vid.stream && ref.srcObject !== vid.stream) {
-                                                    ref.srcObject = vid.stream;
-                                                }
-                                            }}
-                                            className={styles.videoElement}
-                                            autoPlay
-                                            playsInline
-                                        ></video>
-                                        <Box className={styles.videoLabel}>
-                                            <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
-                                            <Typography variant="body2">{displayName}</Typography>
-                                        </Box>
-                                        
-                                        {/* Status Icons */}
-                                        <Box className={styles.cardStatusIcons}>
-                                            {hasHand && <PanToolIcon className={styles.raisedHandIcon} />}
-                                            {isMuted && <MicOffIcon sx={{ color: '#f44336', fontSize: '1.2rem' }} />}
-                                        </Box>
-
-                                        {isCamOff && (
-                                            <Box className={styles.videoMutedOverlay}>
-                                                <Typography variant="h6">{displayName.substring(0,2).toUpperCase()}</Typography>
-                                            </Box>
-                                        )}
-
-                                        {isSharing && (
-                                            <Box className={styles.screenShareOverlay}>
-                                                <ScreenShareIcon sx={{ fontSize: '3rem', color: '#ff9839', mb: 1 }} />
-                                                <Typography variant="body2" sx={{ fontWeight: 600 }}>Presenting Screen</Typography>
-                                            </Box>
-                                        )}
+                        ) : (
+                            // GALLERY VIEW (Responsive Grid)
+                            <Box className={`${styles.videoGrid} ${getGalleryGridClass(videos.length + 1)}`}>
+                                {/* Local Video Card */}
+                                <Box className={`${styles.videoCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
+                                    <video ref={videoRefCallback('local')} className={styles.videoElement} autoPlay muted></video>
+                                    <Box className={styles.videoLabel}>
+                                        <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
+                                        <Typography variant="body2">{username} (You)</Typography>
                                     </Box>
-                                );
-                            })}
-                        </Box>
+                                    
+                                    {/* Status Icons */}
+                                    <Box className={styles.cardStatusIcons}>
+                                        <IconButton onClick={() => togglePinParticipant('local')} size="small" className={styles.pinBtnHover}>
+                                            <PushPinIcon sx={{ fontSize: '1.1rem' }} />
+                                        </IconButton>
+                                        {handRaised && <PanToolIcon className={styles.raisedHandIcon} />}
+                                        {!audio && <MicOffIcon sx={{ color: '#f44336', fontSize: '1.2rem' }} />}
+                                    </Box>
+
+                                    {!video && (
+                                        <Box className={styles.videoMutedOverlay}>
+                                            <MuiAvatar sx={{ width: 70, height: 70, fontSize: '2rem', bgcolor: '#ff9839' }}>
+                                                {username.substring(0,2).toUpperCase()}
+                                            </MuiAvatar>
+                                        </Box>
+                                    )}
+                                    {screen && (
+                                        <Box className={styles.screenShareOverlay}>
+                                            <ScreenShareIcon sx={{ fontSize: '3rem', color: '#ff9839', mb: 1 }} />
+                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>You are presenting</Typography>
+                                        </Box>
+                                    )}
+                                </Box>
+
+                                {/* Remote Participant Videos */}
+                                {videos.map((vid) => {
+                                    const status = participantsStatus[vid.socketId] || {};
+                                    const isMuted = status['audio'] === false;
+                                    const isCamOff = status['video'] === false;
+                                    const hasHand = status['raise-hand'] === true;
+                                    const isSharing = status['screen'] === true;
+                                    const isSpeaker = activeSpeaker === vid.socketId;
+                                    const displayName = status['username'] || `Participant (${vid.socketId.substring(0, 4)})`;
+
+                                    return (
+                                        <Box className={`${styles.videoCard} ${isSpeaker ? styles.activeSpeaker : ''}`} key={vid.socketId}>
+                                            <video ref={videoRefCallback(vid.socketId)} className={styles.videoElement} autoPlay playsInline></video>
+                                            <Box className={styles.videoLabel}>
+                                                <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
+                                                <Typography variant="body2">{displayName}</Typography>
+                                            </Box>
+                                            
+                                            {/* Status Icons */}
+                                            <Box className={styles.cardStatusIcons}>
+                                                <IconButton onClick={() => togglePinParticipant(vid.socketId)} size="small" className={styles.pinBtnHover}>
+                                                    <PushPinIcon sx={{ fontSize: '1.1rem' }} />
+                                                </IconButton>
+                                                {hasHand && <PanToolIcon className={styles.raisedHandIcon} />}
+                                                {isMuted && <MicOffIcon sx={{ color: '#f44336', fontSize: '1.2rem' }} />}
+                                            </Box>
+
+                                            {isCamOff && (
+                                                <Box className={styles.videoMutedOverlay}>
+                                                    <MuiAvatar sx={{ width: 70, height: 70, fontSize: '2rem', bgcolor: 'rgba(255,255,255,0.1)' }}>
+                                                        {displayName.substring(0,2).toUpperCase()}
+                                                    </MuiAvatar>
+                                                </Box>
+                                            )}
+
+                                            {isSharing && (
+                                                <Box className={styles.screenShareOverlay}>
+                                                    <ScreenShareIcon sx={{ fontSize: '3rem', color: '#ff9839', mb: 1 }} />
+                                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>Presenting Screen</Typography>
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    );
+                                })}
+                            </Box>
+                        )}
                     </Box>
 
                     {/* Floating Controls Dock */}
@@ -967,6 +1259,34 @@ export default function VideoMeetComponent() {
                         >
                             <FiberManualRecordIcon />
                         </IconButton>
+
+                        {/* Layout Toggle Menu */}
+                        <IconButton 
+                            onClick={(e) => setLayoutAnchorEl(e.currentTarget)} 
+                            className={styles.controlBtn}
+                            title="Choose Layout"
+                        >
+                            {layoutMode === 'gallery' ? <GridViewIcon /> : <AccountBoxIcon />}
+                        </IconButton>
+                        <Menu
+                            anchorEl={layoutAnchorEl}
+                            open={Boolean(layoutAnchorEl)}
+                            onClose={() => setLayoutAnchorEl(null)}
+                            PaperProps={{
+                                style: {
+                                    background: '#111827',
+                                    border: '1px solid rgba(255,255,255,0.08)',
+                                    borderRadius: '8px'
+                                }
+                            }}
+                        >
+                            <MenuItem onClick={() => { setLayoutMode('gallery'); setPinnedParticipant(null); setLayoutAnchorEl(null); }} style={{ gap: '10px' }}>
+                                <GridViewIcon fontSize="small" style={{ color: '#ff9839' }} /> Gallery View
+                            </MenuItem>
+                            <MenuItem onClick={() => { setLayoutMode('speaker'); setLayoutAnchorEl(null); }} style={{ gap: '10px' }}>
+                                <AccountBoxIcon fontSize="small" style={{ color: '#ff9839' }} /> Speaker View
+                            </MenuItem>
+                        </Menu>
 
                         <IconButton 
                             onClick={toggleParticipants} 
