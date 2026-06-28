@@ -103,5 +103,18 @@ const addToHistory = async (req, res) => {
     }
 }
 
+const logout = async (req, res) => {
+    const { token } = req.body;
+    try {
+        const user = await User.findOne({ token });
+        if (user) {
+            user.token = "";
+            await user.save();
+        }
+        return res.status(httpStatus.OK).json({ message: "Logged out successfully" });
+    } catch (e) {
+        return res.status(500).json({ message: `Something went wrong: ${e.message}` });
+    }
+};
 
-export { login, register, getUserHistory, addToHistory }
+export { login, register, getUserHistory, addToHistory, logout }

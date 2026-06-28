@@ -13,7 +13,7 @@ function HomeComponent() {
     const [meetingCode, setMeetingCode] = useState("");
 
 
-    const {addToUserHistory} = useContext(AuthContext);
+    const {addToUserHistory, handleLogout} = useContext(AuthContext);
     let handleJoinVideoCall = async () => {
         await addToUserHistory(meetingCode)
         navigate(`/${meetingCode}`)
@@ -39,10 +39,7 @@ function HomeComponent() {
                     </IconButton>
                     <p>History</p>
 
-                    <Button onClick={() => {
-                        localStorage.removeItem("token")
-                        navigate("/auth")
-                    }}>
+                    <Button onClick={handleLogout}>
                         Logout
                     </Button>
                 </div>

@@ -84,9 +84,21 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
+    const handleLogout = async () => {
+        try {
+            await client.post("/logout", {
+                token: localStorage.getItem("token")
+            });
+        } catch (e) {
+            console.error("Logout error:", e);
+        } finally {
+            localStorage.removeItem("token");
+            router("/auth");
+        }
+    };
 
     const data = {
-        userData, setUserData, addToUserHistory, getHistoryOfUser, handleRegister, handleLogin
+        userData, setUserData, addToUserHistory, getHistoryOfUser, handleRegister, handleLogin, handleLogout
     }
 
     return (
