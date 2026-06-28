@@ -36,7 +36,7 @@ export default function VideoMeetComponent() {
     const socketRef = useRef(null);
     const socketIdRef = useRef(null);
     const connectionsRef = useRef({});
-    const localVideoref = useRef(null);
+    const videoElementsRef = useRef({});
     const screenStreamRef = useRef(null);
     
     // Audio volume analysis refs
@@ -94,7 +94,7 @@ export default function VideoMeetComponent() {
         });
     };
 
-    // Load MediaPipe on mount
+    // Load MediaPipe on mount and get local permissions
     useEffect(() => {
         getPermissions();
         
@@ -123,6 +123,67 @@ export default function VideoMeetComponent() {
         };
     }, [askForUsername]);
 
+    // Stream and Face Tracker Binding Effect
+    useEffect(() => {
+        // 1. Bind Local Video Stream & Auto-Framing
+        const localEl = videoElementsRef.current['local'];
+        if (localEl && window.localStream) {
+            if (localEl.srcObject !== window.localStream) {
+                localEl.srcObject = window.localStream;
+            }
+            
+            const shouldTrack = faceMlReady && video && !screen;
+            if (shouldTrack) {
+                if (!trackersRef.current['local']) {
+                    const cleanup = startTracking(localEl);
+                    if (cleanup) trackersRef.current['local'] = cleanup;
+                }
+            } else {
+                if (trackersRef.current['local']) {
+                    trackersRef.current['local']();
+                    delete trackersRef.current['local'];
+                }
+            }
+        }
+
+        // 2. Bind Remote Video Streams & Auto-Framing
+        videos.forEach(vid => {
+            const el = videoElementsRef.current[vid.socketId];
+            if (el && vid.stream) {
+                if (el.srcObject !== vid.stream) {
+                    el.srcObject = vid.stream;
+                }
+
+                const status = participantsStatus[vid.socketId] || {};
+                const isCamActive = status.video !== false;
+                const isSharing = status.screen === true;
+                
+                const shouldTrack = faceMlReady && isCamActive && !isSharing;
+                if (shouldTrack) {
+                    if (!trackersRef.current[vid.socketId]) {
+                        const cleanup = startTracking(el);
+                        if (cleanup) trackersRef.current[vid.socketId] = cleanup;
+                    }
+                } else {
+                    if (trackersRef.current[vid.socketId]) {
+                        trackersRef.current[vid.socketId]();
+                        delete trackersRef.current[vid.socketId];
+                    }
+                }
+            }
+        });
+
+        // 3. Cleanup face trackers for disconnected participants
+        const activeIds = ['local', ...videos.map(v => v.socketId)];
+        Object.keys(trackersRef.current).forEach(id => {
+            if (!activeIds.includes(id)) {
+                if (trackersRef.current[id]) trackersRef.current[id]();
+                delete trackersRef.current[id];
+            }
+        });
+
+    }, [videos, faceMlReady, video, screen, participantsStatus]);
+
     const formatTime = (totalSeconds) => {
         const hrs = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
         const mins = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
@@ -150,13 +211,12 @@ export default function VideoMeetComponent() {
             });
             
             faceDetection.setOptions({
-                model: 'short', // 'short' is optimized for close-range webcam video
+                model: 'short',
                 minDetectionConfidence: 0.45
             });
             
             faceDetection.onResults((results) => {
                 if (results.detections && results.detections.length > 0) {
-                    // Find the bounding box that encompasses all faces
                     let minX = 1, minY = 1, maxX = 0, maxY = 0;
                     results.detections.forEach(det => {
                         const box = det.boundingBox;
@@ -169,11 +229,9 @@ export default function VideoMeetComponent() {
                     const centerX = (minX + maxX) / 2;
                     const centerY = (minY + maxY) / 2;
                     
-                    // Convert to percentages and clamp between 10% and 90% to avoid extreme offsets
                     const posX = Math.max(0.1, Math.min(0.9, centerX)) * 100;
                     const posY = Math.max(0.1, Math.min(0.9, centerY)) * 100;
                     
-                    // Apply GPU-accelerated CSS object-position for smooth panning
                     videoElement.style.objectPosition = `${posX}% ${posY}%`;
                 } else {
                     videoElement.style.objectPosition = '50% 50%';
@@ -183,15 +241,11 @@ export default function VideoMeetComponent() {
             let active = true;
             const processFrame = async () => {
                 if (!active) return;
-                // ReadyState 2 means HAVE_CURRENT_DATA (video is playing)
                 if (videoElement.readyState >= 2) {
                     try {
                         await faceDetection.send({ image: videoElement });
-                    } catch (e) {
-                        // Silent catch for frame-send races during transitions
-                    }
+                    } catch (e) {}
                 }
-                // Throttle to 5 FPS (every 200ms) to maintain 60fps rendering performance
                 setTimeout(() => {
                     if (active) requestAnimationFrame(processFrame);
                 }, 200);
@@ -249,7 +303,7 @@ export default function VideoMeetComponent() {
     };
 
     const determineActiveSpeaker = () => {
-        let maxVolume = 12; // Audio threshold
+        let maxVolume = 12;
         let speaker = null;
         for (const [id, vol] of Object.entries(volumesRef.current)) {
             if (vol > maxVolume) {
@@ -278,7 +332,6 @@ export default function VideoMeetComponent() {
             localVolumeCleanupRef.current = null;
         }
         
-        // Clean up all MediaPipe trackers
         for (let id in trackersRef.current) {
             if (trackersRef.current[id]) trackersRef.current[id]();
         }
@@ -293,6 +346,7 @@ export default function VideoMeetComponent() {
         }
         connectionsRef.current = {};
         volumesRef.current = {};
+        videoElementsRef.current = {};
     };
 
     const createFallbackStream = () => {
@@ -301,9 +355,6 @@ export default function VideoMeetComponent() {
         const silenceTrack = createSilenceAudioTrack();
         const fallbackStream = new MediaStream([blackTrack, silenceTrack]);
         window.localStream = fallbackStream;
-        if (localVideoref.current) {
-            localVideoref.current.srcObject = fallbackStream;
-        }
     };
 
     const createSilenceAudioTrack = () => {
@@ -347,20 +398,15 @@ export default function VideoMeetComponent() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             window.localStream = stream;
-            if (localVideoref.current) {
-                localVideoref.current.srcObject = stream;
-            }
             setVideoAvailable(true);
             setAudioAvailable(true);
             setVideo(true);
             setAudio(true);
 
             setupLocalSpeakerMonitoring();
-
             console.log('Camera and Microphone permissions granted');
         } catch (err) {
             console.warn('Failed to get both video and audio, trying individually...', err);
-            
             let hasVideo = false;
             let hasAudio = false;
 
@@ -371,7 +417,6 @@ export default function VideoMeetComponent() {
                 setVideoAvailable(true);
                 setVideo(true);
             } catch (videoErr) {
-                hasVideo = false;
                 setVideoAvailable(false);
                 setVideo(false);
             }
@@ -383,7 +428,6 @@ export default function VideoMeetComponent() {
                 setAudioAvailable(true);
                 setAudio(true);
             } catch (audioErr) {
-                hasAudio = false;
                 setAudioAvailable(false);
                 setAudio(false);
             }
@@ -395,9 +439,6 @@ export default function VideoMeetComponent() {
                         audio: hasAudio
                     });
                     window.localStream = stream;
-                    if (localVideoref.current) {
-                        localVideoref.current.srcObject = stream;
-                    }
                     if (hasAudio) {
                         setupLocalSpeakerMonitoring();
                     }
@@ -405,7 +446,6 @@ export default function VideoMeetComponent() {
                     createFallbackStream();
                 }
             } catch (fallbackErr) {
-                console.error('Error opening media stream:', fallbackErr);
                 createFallbackStream();
             }
         } finally {
@@ -455,12 +495,37 @@ export default function VideoMeetComponent() {
         };
 
         pc.ontrack = (event) => {
-            console.log("Received remote track from:", socketListId, event.streams);
-            const remoteStream = event.streams[0];
+            console.log("Received remote track from:", socketListId, event.track.kind);
+            
+            setVideos((prevVideos) => {
+                const videoExists = prevVideos.find(v => v.socketId === socketListId);
+                
+                if (videoExists) {
+                    // Reuse the existing MediaStream and add the new track to it
+                    const existingStream = videoExists.stream || new MediaStream();
+                    if (!existingStream.getTracks().find(t => t.id === event.track.id)) {
+                        existingStream.addTrack(event.track);
+                    }
+                    return prevVideos.map(v => 
+                        v.socketId === socketListId ? { ...v, stream: existingStream } : v
+                    );
+                } else {
+                    // Create a new independent MediaStream for this participant
+                    const newStream = new MediaStream();
+                    newStream.addTrack(event.track);
+                    return [...prevVideos, {
+                        socketId: socketListId,
+                        stream: newStream,
+                        autoplay: true,
+                        playsinline: true
+                    }];
+                }
+            });
 
             if (event.track.kind === 'audio') {
+                const audioStream = new MediaStream([event.track]);
                 if (pc.volumeCleanup) pc.volumeCleanup();
-                const cleanup = monitorAudioVolume(remoteStream, (vol) => {
+                const cleanup = monitorAudioVolume(audioStream, (vol) => {
                     const isMuted = participantsStatus[socketListId]?.audio === false;
                     volumesRef.current[socketListId] = isMuted ? 0 : vol;
                     determineActiveSpeaker();
@@ -469,22 +534,6 @@ export default function VideoMeetComponent() {
                     pc.volumeCleanup = cleanup;
                 }
             }
-
-            setVideos((prevVideos) => {
-                const videoExists = prevVideos.find(v => v.socketId === socketListId);
-                if (videoExists) {
-                    return prevVideos.map(v => 
-                        v.socketId === socketListId ? { ...v, stream: remoteStream } : v
-                    );
-                } else {
-                    return [...prevVideos, {
-                        socketId: socketListId,
-                        stream: remoteStream,
-                        autoplay: true,
-                        playsinline: true
-                    }];
-                }
-            });
         };
 
         if (window.localStream) {
@@ -567,7 +616,6 @@ export default function VideoMeetComponent() {
 
             socketRef.current.on('chat-message', addMessage);
 
-            // Sync peer actions
             socketRef.current.on('user-action', (fromId, actionType, value) => {
                 setParticipantsStatus(prev => ({
                     ...prev,
@@ -617,7 +665,6 @@ export default function VideoMeetComponent() {
                     return next;
                 });
                 
-                // Cleanup MediaPipe tracker for leaving user
                 if (trackersRef.current[id]) {
                     trackersRef.current[id]();
                     delete trackersRef.current[id];
@@ -817,43 +864,13 @@ export default function VideoMeetComponent() {
         setModal(false);
     };
 
-    // Declarative Ref Callback for video elements (forces correct stream and starts AI face tracking)
-    const videoRefCallback = (id) => (el) => {
-        // Clean up old tracker
-        if (trackersRef.current[id]) {
-            trackersRef.current[id]();
-            delete trackersRef.current[id];
-        }
-
-        if (el) {
-            const isLocal = id === 'local';
-            const stream = isLocal ? window.localStream : videos.find(v => v.socketId === id)?.stream;
-            
-            // Set stream source
-            if (stream && el.srcObject !== stream) {
-                el.srcObject = stream;
-            }
-
-            // Start AI Face Tracking only if camera is active, ML is loaded, and not screen sharing
-            const isSharing = isLocal ? screen : (participantsStatus[id]?.screen === true);
-            const isCameraActive = isLocal ? video : (participantsStatus[id]?.video !== false);
-            
-            if (faceMlReady && isCameraActive && !isSharing) {
-                const cleanup = startTracking(el);
-                if (cleanup) {
-                    trackersRef.current[id] = cleanup;
-                }
-            }
-        }
-    };
-
     // Pin / Unpin a participant
     const togglePinParticipant = (id) => {
         if (pinnedParticipant === id) {
             setPinnedParticipant(null);
         } else {
             setPinnedParticipant(id);
-            setLayoutMode('speaker'); // Pinning automatically switches to Speaker/Stage layout
+            setLayoutMode('speaker');
         }
     };
 
@@ -894,7 +911,10 @@ export default function VideoMeetComponent() {
                                 </Box>
                             ) : (
                                 <video
-                                    ref={videoRefCallback('local')}
+                                    ref={el => {
+                                        if (el) videoElementsRef.current['local'] = el;
+                                        else delete videoElementsRef.current['local'];
+                                    }}
                                     className={styles.lobbyVideo}
                                     autoPlay
                                     muted
@@ -1004,7 +1024,15 @@ export default function VideoMeetComponent() {
                                     {pinnedParticipant === 'local' || (!pinnedParticipant && activeSpeaker === 'local') || (!pinnedParticipant && !activeSpeaker) ? (
                                         // Local on Stage
                                         <Box className={`${styles.videoCard} ${styles.stageCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
-                                            <video ref={videoRefCallback('local')} className={styles.videoElement} autoPlay muted></video>
+                                            <video 
+                                                ref={el => {
+                                                    if (el) videoElementsRef.current['local'] = el;
+                                                    else delete videoElementsRef.current['local'];
+                                                }} 
+                                                className={styles.videoElement} 
+                                                autoPlay 
+                                                muted
+                                            ></video>
                                             <Box className={styles.videoLabel}>
                                                 <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
                                                 <Typography variant="body2">{username} (You)</Typography>
@@ -1045,7 +1073,15 @@ export default function VideoMeetComponent() {
 
                                             return (
                                                 <Box className={`${styles.videoCard} ${styles.stageCard} ${activeSpeaker === stageId ? styles.activeSpeaker : ''}`} key={stageId}>
-                                                    <video ref={videoRefCallback(stageId)} className={styles.videoElement} autoPlay playsInline></video>
+                                                    <video 
+                                                        ref={el => {
+                                                            if (el) videoElementsRef.current[stageId] = el;
+                                                            else delete videoElementsRef.current[stageId];
+                                                        }} 
+                                                        className={styles.videoElement} 
+                                                        autoPlay 
+                                                        playsInline
+                                                    ></video>
                                                     <Box className={styles.videoLabel}>
                                                         <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
                                                         <Typography variant="body2">{displayName}</Typography>
@@ -1081,7 +1117,15 @@ export default function VideoMeetComponent() {
                                     {/* Local Thumbnail (if not on stage) */}
                                     {(pinnedParticipant && pinnedParticipant !== 'local' && (pinnedParticipant || activeSpeaker !== 'local')) && (
                                         <Box className={`${styles.videoCard} ${styles.filmstripCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
-                                            <video ref={videoRefCallback('local')} className={styles.videoElement} autoPlay muted></video>
+                                            <video 
+                                                ref={el => {
+                                                    if (el) videoElementsRef.current['local'] = el;
+                                                    else delete videoElementsRef.current['local'];
+                                                }} 
+                                                className={styles.videoElement} 
+                                                autoPlay 
+                                                muted
+                                            ></video>
                                             <Box className={styles.videoLabel}>
                                                 <Typography variant="caption">{username} (You)</Typography>
                                             </Box>
@@ -1103,7 +1147,7 @@ export default function VideoMeetComponent() {
                                     {/* Remote Thumbnails */}
                                     {videos.map((vid) => {
                                         const stageId = pinnedParticipant || activeSpeaker || (videos[0]?.socketId);
-                                        if (vid.socketId === stageId && pinnedParticipant) return null; // Hide if already on stage
+                                        if (vid.socketId === stageId && pinnedParticipant) return null;
 
                                         const status = participantsStatus[vid.socketId] || {};
                                         const isMuted = status['audio'] === false;
@@ -1112,7 +1156,15 @@ export default function VideoMeetComponent() {
 
                                         return (
                                             <Box className={`${styles.videoCard} ${styles.filmstripCard} ${activeSpeaker === vid.socketId ? styles.activeSpeaker : ''}`} key={vid.socketId}>
-                                                <video ref={videoRefCallback(vid.socketId)} className={styles.videoElement} autoPlay playsInline></video>
+                                                <video 
+                                                    ref={el => {
+                                                        if (el) videoElementsRef.current[vid.socketId] = el;
+                                                        else delete videoElementsRef.current[vid.socketId];
+                                                    }} 
+                                                    className={styles.videoElement} 
+                                                    autoPlay 
+                                                    playsInline
+                                                ></video>
                                                 <Box className={styles.videoLabel}>
                                                     <Typography variant="caption">{displayName}</Typography>
                                                 </Box>
@@ -1138,7 +1190,15 @@ export default function VideoMeetComponent() {
                             <Box className={`${styles.videoGrid} ${getGalleryGridClass(videos.length + 1)}`}>
                                 {/* Local Video Card */}
                                 <Box className={`${styles.videoCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
-                                    <video ref={videoRefCallback('local')} className={styles.videoElement} autoPlay muted></video>
+                                    <video 
+                                        ref={el => {
+                                            if (el) videoElementsRef.current['local'] = el;
+                                            else delete videoElementsRef.current['local'];
+                                        }} 
+                                        className={styles.videoElement} 
+                                        autoPlay 
+                                        muted
+                                    ></video>
                                     <Box className={styles.videoLabel}>
                                         <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
                                         <Typography variant="body2">{username} (You)</Typography>
@@ -1180,7 +1240,15 @@ export default function VideoMeetComponent() {
 
                                     return (
                                         <Box className={`${styles.videoCard} ${isSpeaker ? styles.activeSpeaker : ''}`} key={vid.socketId}>
-                                            <video ref={videoRefCallback(vid.socketId)} className={styles.videoElement} autoPlay playsInline></video>
+                                            <video 
+                                                ref={el => {
+                                                    if (el) videoElementsRef.current[vid.socketId] = el;
+                                                    else delete videoElementsRef.current[vid.socketId];
+                                                }} 
+                                                className={styles.videoElement} 
+                                                autoPlay 
+                                                playsInline
+                                            ></video>
                                             <Box className={styles.videoLabel}>
                                                 <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
                                                 <Typography variant="body2">{displayName}</Typography>
@@ -1415,7 +1483,9 @@ export default function VideoMeetComponent() {
                                                 {displayName.substring(0,2).toUpperCase()}
                                             </MuiAvatar>
                                             <Box sx={{ flexGrow: 1 }}>
-                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>{displayName}</Typography>
+                                                <Typography variant="body2" sx={{ 
+                                                    fontWeight: 500 
+                                                }}>{displayName}</Typography>
                                                 <Typography variant="caption" sx={{ color: '#9ca3af' }}>Participant</Typography>
                                             </Box>
                                             <Box className={styles.participantIcons}>
