@@ -25,19 +25,19 @@ import server from '../environment';
 
 const server_url = server;
 
+// Global connections object matching the Apna College Zoom repository structure
+var connections = {};
+
 const peerConfigConnections = {
     "iceServers": [
-        { "urls": "stun:stun.l.google.com:19302" },
-        { "urls": "stun:stun1.l.google.com:19302" }
+        { "urls": "stun:stun.l.google.com:19302" }
     ]
 }
 
 export default function VideoMeetComponent() {
     const socketRef = useRef(null);
     const socketIdRef = useRef(null);
-    const connectionsRef = useRef({});
     const videoElementsRef = useRef({});
-    const screenStreamRef = useRef(null);
     
     // Audio volume analysis refs
     const volumesRef = useRef({});
@@ -77,6 +77,8 @@ export default function VideoMeetComponent() {
     const [username, setUsername] = useState("");
     const [videos, setVideos] = useState([]);
     const [loading, setLoading] = useState(false);
+
+    const videoRef = useRef([]);
 
     // Dynamic Script Loader for MediaPipe Face Detection
     const loadScript = (src) => {
@@ -335,10 +337,6 @@ export default function VideoMeetComponent() {
             window.localStream.getTracks().forEach(track => track.stop());
             window.localStream = null;
         }
-        if (screenStreamRef.current) {
-            screenStreamRef.current.getTracks().forEach(track => track.stop());
-            screenStreamRef.current = null;
-        }
         if (localVolumeCleanupRef.current) {
             localVolumeCleanupRef.current();
             localVolumeCleanupRef.current = null;
@@ -349,15 +347,15 @@ export default function VideoMeetComponent() {
         }
         trackersRef.current = {};
 
-        for (let id in connectionsRef.current) {
-            const pc = connectionsRef.current[id];
+        for (let id in connections) {
+            const pc = connections[id];
             if (pc) {
                 console.log(`[WebRTC] Peer closed for: ${id}`);
                 if (pc.volumeCleanup) pc.volumeCleanup();
                 pc.close();
             }
         }
-        connectionsRef.current = {};
+        connections = {};
         volumesRef.current = {};
         videoElementsRef.current = {};
     };
@@ -498,7 +496,7 @@ export default function VideoMeetComponent() {
         console.log(`[WebRTC] Peer created for: ${socketListId}`);
         const pc = new RTCPeerConnection(peerConfigConnections);
         
-        connectionsRef.current[socketListId] = pc;
+        connections[socketListId] = pc;
         pc.iceQueue = [];
 
         pc.onicecandidate = (event) => {
@@ -508,38 +506,36 @@ export default function VideoMeetComponent() {
             }
         };
 
-        pc.ontrack = (event) => {
-            console.log(`[WebRTC] Remote track received from peer: ${socketListId} (Kind: ${event.track.kind})`);
+        // Use onaddstream to match the Apna College Zoom repository API
+        pc.onaddstream = (event) => {
+            console.log(`[WebRTC] Remote stream received from peer: ${socketListId}`);
             
             setVideos((prevVideos) => {
                 const videoExists = prevVideos.find(v => v.socketId === socketListId);
                 
                 if (videoExists) {
-                    const existingStream = videoExists.stream || new MediaStream();
-                    if (!existingStream.getTracks().find(t => t.id === event.track.id)) {
-                        existingStream.addTrack(event.track);
-                        console.log(`[WebRTC] Remote track attached to existing stream for peer: ${socketListId}`);
-                    }
-                    return prevVideos.map(v => 
+                    const existingStream = event.stream;
+                    videoRef.current = prevVideos.map(v => 
                         v.socketId === socketListId ? { ...v, stream: existingStream } : v
                     );
+                    return videoRef.current;
                 } else {
-                    const newStream = new MediaStream();
-                    newStream.addTrack(event.track);
-                    console.log(`[WebRTC] Remote track attached to new stream for peer: ${socketListId}`);
-                    return [...prevVideos, {
+                    const newStream = event.stream;
+                    const newVideo = {
                         socketId: socketListId,
                         stream: newStream,
                         autoplay: true,
                         playsinline: true
-                    }];
+                    };
+                    videoRef.current = [...prevVideos, newVideo];
+                    return videoRef.current;
                 }
             });
 
-            if (event.track.kind === 'audio') {
-                const audioStream = new MediaStream([event.track]);
+            // Start audio volume monitoring
+            if (event.stream.getAudioTracks().length > 0) {
                 if (pc.volumeCleanup) pc.volumeCleanup();
-                const cleanup = monitorAudioVolume(audioStream, (vol) => {
+                const cleanup = monitorAudioVolume(event.stream, (vol) => {
                     const isMuted = participantsStatus[socketListId]?.audio === false;
                     volumesRef.current[socketListId] = isMuted ? 0 : vol;
                     determineActiveSpeaker();
@@ -550,19 +546,15 @@ export default function VideoMeetComponent() {
             }
         };
 
-        // Add local tracks. If currently screen sharing, add the screen sharing track instead of the camera video track.
-        if (window.localStream) {
-            window.localStream.getTracks().forEach(track => {
-                if (track.kind === 'video' && screen && screenStreamRef.current) {
-                    const screenTrack = screenStreamRef.current.getVideoTracks()[0];
-                    if (screenTrack) {
-                        pc.addTrack(screenTrack, screenStreamRef.current);
-                        console.log(`[WebRTC] Added screen share track (instead of camera) for new peer: ${socketListId}`);
-                        return;
-                    }
-                }
-                pc.addTrack(track, window.localStream);
-            });
+        // Add local stream matching the Apna College Zoom repository's addStream call.
+        // If currently screen sharing, add the screen sharing stream instead of the camera stream.
+        if (screen && window.localStream) {
+            // Screen sharing uses getDisplayMedia stream
+            const activeStream = window.localStream;
+            pc.addStream(activeStream);
+            console.log(`[WebRTC] Added screen share stream (instead of camera) for new peer: ${socketListId}`);
+        } else if (window.localStream) {
+            pc.addStream(window.localStream);
         }
 
         return pc;
@@ -578,7 +570,7 @@ export default function VideoMeetComponent() {
 
         if (fromId === socketIdRef.current) return;
 
-        let pc = connectionsRef.current[fromId];
+        let pc = connections[fromId];
         if (!pc) {
             pc = initializePeerConnection(fromId);
         }
@@ -712,7 +704,10 @@ export default function VideoMeetComponent() {
                 addNotification(`${displayName} left the meeting`, 'warning');
                 console.log(`[Socket] User left: ${id}`);
                 
-                setVideos((prevVideos) => prevVideos.filter((v) => v.socketId !== id));
+                setVideos((prevVideos) => {
+                    videoRef.current = prevVideos.filter((v) => v.socketId !== id);
+                    return videoRef.current;
+                });
                 
                 delete volumesRef.current[id];
                 determineActiveSpeaker();
@@ -732,42 +727,47 @@ export default function VideoMeetComponent() {
                     delete trackersRef.current[id];
                 }
 
-                const pc = connectionsRef.current[id];
+                const pc = connections[id];
                 if (pc) {
                     console.log(`[WebRTC] Peer closed for: ${id}`);
                     if (pc.volumeCleanup) pc.volumeCleanup();
                     pc.close();
-                    delete connectionsRef.current[id];
+                    delete connections[id];
                 }
             });
 
             socketRef.current.on('user-joined', (joinedUserId, allClients) => {
                 console.log(`[Socket] User joined event received. Joining User: ${joinedUserId}`);
                 
+                // Fix: Check if connection already exists before creating a new one to prevent overwriting when 3+ users connect
+                allClients.forEach((socketListId) => {
+                    if (socketListId === socketIdRef.current) return;
+                    if (connections[socketListId] === undefined) {
+                        initializePeerConnection(socketListId);
+                    }
+                });
+
                 if (joinedUserId === socketIdRef.current) {
                     addNotification("You joined the meeting", "success");
-                    allClients.forEach((socketListId) => {
-                        if (socketListId === socketIdRef.current) return;
-                        if (connectionsRef.current[socketListId]) return;
-
-                        const pc = initializePeerConnection(socketListId);
-
-                        console.log(`[WebRTC] Creating offer for peer: ${socketListId}`);
+                    
+                    // Create offers to all other existing clients
+                    for (let id2 in connections) {
+                        if (id2 === socketIdRef.current) continue;
+                        
+                        const pc = connections[id2];
+                        console.log(`[WebRTC] Creating offer for peer: ${id2}`);
                         pc.createOffer().then((description) => {
                             pc.setLocalDescription(description).then(() => {
-                                socketRef.current.emit('signal', socketListId, JSON.stringify({ 'sdp': pc.localDescription }));
+                                socketRef.current.emit('signal', id2, JSON.stringify({ 'sdp': pc.localDescription }));
                             }).catch(e => console.error("Error setting local description:", e));
                         }).catch(e => console.error("Error creating offer:", e));
-                    });
+                    }
                 } else {
+                    // Send our state to the newly joined user
                     socketRef.current.emit('user-action', 'username', username);
                     socketRef.current.emit('user-action', 'video', video);
                     socketRef.current.emit('user-action', 'audio', audio);
                     if (handRaised) socketRef.current.emit('user-action', 'raise-hand', handRaised);
-                    
-                    if (!connectionsRef.current[joinedUserId]) {
-                        initializePeerConnection(joinedUserId);
-                    }
                 }
             });
         });
@@ -801,6 +801,7 @@ export default function VideoMeetComponent() {
         determineActiveSpeaker();
     };
 
+    // Screen sharing implementation using getDisplayMedia
     const handleScreen = async () => {
         if (!screen) {
             try {
@@ -808,8 +809,17 @@ export default function VideoMeetComponent() {
                 screenStreamRef.current = stream;
                 const screenTrack = stream.getVideoTracks()[0];
 
-                for (let id in connectionsRef.current) {
-                    const pc = connectionsRef.current[id];
+                // Swap localStream to the screen stream
+                const cameraTracks = window.localStream ? window.localStream.getVideoTracks() : [];
+                if (cameraTracks[0]) cameraTracks[0].enabled = false;
+
+                window.localStream = stream;
+                const localEl = videoElementsRef.current['local'];
+                if (localEl) localEl.srcObject = stream;
+
+                // Replace the stream on all connections
+                for (let id in connections) {
+                    const pc = connections[id];
                     const senders = pc.getSenders();
                     const videoSender = senders.find(s => s.track && s.track.kind === 'video');
                     if (videoSender) {
@@ -835,29 +845,40 @@ export default function VideoMeetComponent() {
         }
     };
 
-    const stopScreenShare = () => {
+    const stopScreenShare = async () => {
         if (screenStreamRef.current) {
             screenStreamRef.current.getTracks().forEach(track => track.stop());
             screenStreamRef.current = null;
         }
 
-        const cameraTrack = window.localStream ? window.localStream.getVideoTracks()[0] : null;
-        if (cameraTrack) {
-            for (let id in connectionsRef.current) {
-                const pc = connectionsRef.current[id];
-                const senders = pc.getSenders();
-                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-                if (videoSender) {
-                    videoSender.replaceTrack(cameraTrack);
+        setScreen(false);
+
+        // Restore camera stream
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: audio });
+            window.localStream = stream;
+            
+            const localEl = videoElementsRef.current['local'];
+            if (localEl) localEl.srcObject = stream;
+
+            const cameraTrack = stream.getVideoTracks()[0];
+            if (cameraTrack) {
+                for (let id in connections) {
+                    const pc = connections[id];
+                    const senders = pc.getSenders();
+                    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                    if (videoSender) {
+                        videoSender.replaceTrack(cameraTrack);
+                    }
                 }
             }
+        } catch (e) {
+            console.error("Failed to restore camera stream:", e);
         }
 
         if (socketRef.current) {
             socketRef.current.emit('user-action', 'screen', false);
         }
-
-        setScreen(false);
         addNotification("You stopped screen sharing", "info");
     };
 
@@ -947,6 +968,8 @@ export default function VideoMeetComponent() {
         if (totalCount <= 9) return styles.grid5to9;
         return styles.grid10plus;
     };
+
+    const screenStreamRef = useRef(null);
 
     return (
         <Box className={styles.meetVideoContainer}>
@@ -1133,7 +1156,6 @@ export default function VideoMeetComponent() {
                                             const status = participantsStatus[stageId] || {};
                                             const isMuted = status['audio'] === false;
                                             const isCamOff = status['video'] === false;
-                                            const hasHand = status['raise-hand'] === true;
                                             const isSharing = status['screen'] === true;
                                             const displayName = status['username'] || `Participant (${stageId.substring(0, 4)})`;
 
@@ -1156,7 +1178,7 @@ export default function VideoMeetComponent() {
                                                         <IconButton onClick={() => togglePinParticipant(stageId)} size="small" className={pinnedParticipant === stageId ? styles.pinBtnActive : styles.pinBtnHover}>
                                                             <PushPinIcon sx={{ fontSize: '1.1rem' }} />
                                                         </IconButton>
-                                                        {hasHand && <PanToolIcon className={styles.raisedHandIcon} />}
+                                                        {status['raise-hand'] && <PanToolIcon className={styles.raisedHandIcon} />}
                                                         {isMuted && <MicOffIcon sx={{ color: '#f44336', fontSize: '1.2rem' }} />}
                                                     </Box>
                                                     {isCamOff && (
@@ -1294,7 +1316,6 @@ export default function VideoMeetComponent() {
                                     const isMuted = status['audio'] === false;
                                     const isCamOff = status['video'] === false;
                                     const hasHand = status['raise-hand'] === true;
-                                    const isSharing = status['screen'] === true;
                                     const isSpeaker = activeSpeaker === vid.socketId;
                                     const displayName = status['username'] || `Participant (${vid.socketId.substring(0, 4)})`;
 
