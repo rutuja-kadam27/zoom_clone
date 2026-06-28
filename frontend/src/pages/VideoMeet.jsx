@@ -94,6 +94,15 @@ export default function VideoMeetComponent() {
         });
     };
 
+    // Helper to extract the clean meeting code from the URL path
+    const getMeetingCode = () => {
+        const path = window.location.pathname;
+        const segments = path.split('/').filter(Boolean);
+        const code = segments[segments.length - 1] || "default-room";
+        console.log(`[App] Extracted Meeting Code: "${code}"`);
+        return code;
+    };
+
     // Load MediaPipe on mount and get local permissions
     useEffect(() => {
         getPermissions();
@@ -130,6 +139,7 @@ export default function VideoMeetComponent() {
         if (localEl && window.localStream) {
             if (localEl.srcObject !== window.localStream) {
                 localEl.srcObject = window.localStream;
+                console.log("[UI] Local camera stream attached to video element");
             }
             
             const shouldTrack = faceMlReady && video && !screen;
@@ -152,6 +162,7 @@ export default function VideoMeetComponent() {
             if (el && vid.stream) {
                 if (el.srcObject !== vid.stream) {
                     el.srcObject = vid.stream;
+                    console.log(`[UI] Remote stream attached to video element for peer: ${vid.socketId}`);
                 }
 
                 const status = participantsStatus[vid.socketId] || {};
@@ -177,6 +188,7 @@ export default function VideoMeetComponent() {
         const activeIds = ['local', ...videos.map(v => v.socketId)];
         Object.keys(trackersRef.current).forEach(id => {
             if (!activeIds.includes(id)) {
+                console.log(`[UI] Video element removed/cleaned up for peer: ${id}`);
                 if (trackersRef.current[id]) trackersRef.current[id]();
                 delete trackersRef.current[id];
             }
@@ -315,7 +327,7 @@ export default function VideoMeetComponent() {
     };
 
     const cleanupCall = () => {
-        console.log("Cleaning up call...");
+        console.log("[WebRTC] Cleaning up call resources...");
         if (socketRef.current) {
             socketRef.current.disconnect();
         }
@@ -340,6 +352,7 @@ export default function VideoMeetComponent() {
         for (let id in connectionsRef.current) {
             const pc = connectionsRef.current[id];
             if (pc) {
+                console.log(`[WebRTC] Peer closed for: ${id}`);
                 if (pc.volumeCleanup) pc.volumeCleanup();
                 pc.close();
             }
@@ -482,7 +495,7 @@ export default function VideoMeetComponent() {
     };
 
     const initializePeerConnection = (socketListId) => {
-        console.log("Initializing peer connection for:", socketListId);
+        console.log(`[WebRTC] Peer created for: ${socketListId}`);
         const pc = new RTCPeerConnection(peerConfigConnections);
         
         connectionsRef.current[socketListId] = pc;
@@ -490,29 +503,30 @@ export default function VideoMeetComponent() {
 
         pc.onicecandidate = (event) => {
             if (event.candidate) {
+                console.log(`[WebRTC] ICE candidate sent to peer: ${socketListId}`);
                 socketRef.current.emit('signal', socketListId, JSON.stringify({ 'ice': event.candidate }));
             }
         };
 
         pc.ontrack = (event) => {
-            console.log("Received remote track from:", socketListId, event.track.kind);
+            console.log(`[WebRTC] Remote track received from peer: ${socketListId} (Kind: ${event.track.kind})`);
             
             setVideos((prevVideos) => {
                 const videoExists = prevVideos.find(v => v.socketId === socketListId);
                 
                 if (videoExists) {
-                    // Reuse the existing MediaStream and add the new track to it
                     const existingStream = videoExists.stream || new MediaStream();
                     if (!existingStream.getTracks().find(t => t.id === event.track.id)) {
                         existingStream.addTrack(event.track);
+                        console.log(`[WebRTC] Remote track attached to existing stream for peer: ${socketListId}`);
                     }
                     return prevVideos.map(v => 
                         v.socketId === socketListId ? { ...v, stream: existingStream } : v
                     );
                 } else {
-                    // Create a new independent MediaStream for this participant
                     const newStream = new MediaStream();
                     newStream.addTrack(event.track);
+                    console.log(`[WebRTC] Remote track attached to new stream for peer: ${socketListId}`);
                     return [...prevVideos, {
                         socketId: socketListId,
                         stream: newStream,
@@ -561,28 +575,45 @@ export default function VideoMeetComponent() {
         }
 
         if (signal.sdp) {
-            pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
-                .then(() => {
-                    if (pc.iceQueue && pc.iceQueue.length > 0) {
-                        pc.iceQueue.forEach(candidate => {
-                            pc.addIceCandidate(new RTCIceCandidate(candidate))
-                                .catch(e => console.error("Error adding queued ICE candidate:", e));
-                        });
-                        pc.iceQueue = [];
-                    }
+            if (signal.sdp.type === 'offer') {
+                console.log(`[WebRTC] Offer received from peer: ${fromId}`);
+                pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
+                    .then(() => {
+                        // Flush any queued ICE candidates
+                        if (pc.iceQueue && pc.iceQueue.length > 0) {
+                            pc.iceQueue.forEach(candidate => {
+                                pc.addIceCandidate(new RTCIceCandidate(candidate))
+                                    .catch(e => console.error("Error adding queued ICE candidate:", e));
+                            });
+                            pc.iceQueue = [];
+                        }
 
-                    if (signal.sdp.type === 'offer') {
                         pc.createAnswer().then((description) => {
+                            console.log(`[WebRTC] Answer created for peer: ${fromId}`);
                             pc.setLocalDescription(description).then(() => {
                                 socketRef.current.emit('signal', fromId, JSON.stringify({ 'sdp': pc.localDescription }));
                             }).catch(e => console.error("Error setting local description:", e));
                         }).catch(e => console.error("Error creating answer:", e));
-                    }
-                })
-                .catch(e => console.error("Error setting remote description:", e));
+                    })
+                    .catch(e => console.error("Error setting remote description:", e));
+            } else if (signal.sdp.type === 'answer') {
+                console.log(`[WebRTC] Answer received from peer: ${fromId}`);
+                pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
+                    .then(() => {
+                        if (pc.iceQueue && pc.iceQueue.length > 0) {
+                            pc.iceQueue.forEach(candidate => {
+                                pc.addIceCandidate(new RTCIceCandidate(candidate))
+                                    .catch(e => console.error("Error adding queued ICE candidate:", e));
+                            });
+                            pc.iceQueue = [];
+                        }
+                    })
+                    .catch(e => console.error("Error setting remote description:", e));
+            }
         }
 
         if (signal.ice) {
+            console.log(`[WebRTC] ICE candidate received from peer: ${fromId}`);
             const candidate = new RTCIceCandidate(signal.ice);
             if (pc.remoteDescription) {
                 pc.addIceCandidate(candidate)
@@ -608,7 +639,10 @@ export default function VideoMeetComponent() {
             console.log("Connected to signaling server. Socket ID:", socketRef.current.id);
             socketIdRef.current = socketRef.current.id;
 
-            socketRef.current.emit('join-call', window.location.href);
+            // CRITICAL FIX: Emit ONLY the clean meeting code, NOT the full window.location.href.
+            // This prevents devices using different hostnames (e.g. localhost vs 192.168.x.x) from being placed in separate rooms.
+            const meetingCode = getMeetingCode();
+            socketRef.current.emit('join-call', meetingCode);
 
             socketRef.current.emit('user-action', 'username', username);
             socketRef.current.emit('user-action', 'video', video);
@@ -650,6 +684,8 @@ export default function VideoMeetComponent() {
             socketRef.current.on('user-left', (id) => {
                 const displayName = participantsStatus[id]?.username || `Participant (${id.substring(0, 4)})`;
                 addNotification(`${displayName} left the meeting`, 'warning');
+                console.log(`[Socket] User left: ${id}`);
+                
                 setVideos((prevVideos) => prevVideos.filter((v) => v.socketId !== id));
                 
                 delete volumesRef.current[id];
@@ -672,6 +708,7 @@ export default function VideoMeetComponent() {
 
                 const pc = connectionsRef.current[id];
                 if (pc) {
+                    console.log(`[WebRTC] Peer closed for: ${id}`);
                     if (pc.volumeCleanup) pc.volumeCleanup();
                     pc.close();
                     delete connectionsRef.current[id];
@@ -679,6 +716,8 @@ export default function VideoMeetComponent() {
             });
 
             socketRef.current.on('user-joined', (joinedUserId, allClients) => {
+                console.log(`[Socket] User joined event received. Joining User: ${joinedUserId}`);
+                
                 if (joinedUserId === socketIdRef.current) {
                     addNotification("You joined the meeting", "success");
                     allClients.forEach((socketListId) => {
@@ -687,6 +726,7 @@ export default function VideoMeetComponent() {
 
                         const pc = initializePeerConnection(socketListId);
 
+                        console.log(`[WebRTC] Creating offer for peer: ${socketListId}`);
                         pc.createOffer().then((description) => {
                             pc.setLocalDescription(description).then(() => {
                                 socketRef.current.emit('signal', socketListId, JSON.stringify({ 'sdp': pc.localDescription }));
@@ -819,7 +859,7 @@ export default function VideoMeetComponent() {
     };
 
     const copyMeetingCode = () => {
-        const code = window.location.pathname.substring(1);
+        const code = getMeetingCode();
         navigator.clipboard.writeText(code)
             .then(() => addNotification("Meeting code copied to clipboard!", "success"))
             .catch(() => addNotification("Failed to copy meeting code", "error"));
@@ -997,7 +1037,7 @@ export default function VideoMeetComponent() {
                             {/* Meeting Code & Invite Links */}
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(255,255,255,0.03)', px: 2, py: 0.5, borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                 <Typography variant="body2" sx={{ fontWeight: 600, color: '#e5e7eb' }}>
-                                    Code: {window.location.pathname.substring(1)}
+                                    Code: {getMeetingCode()}
                                 </Typography>
                                 <IconButton onClick={copyMeetingCode} size="small" sx={{ color: '#9ca3af' }} title="Copy Meeting Code">
                                     <ContentCopyIcon sx={{ fontSize: '1rem' }} />
@@ -1483,9 +1523,7 @@ export default function VideoMeetComponent() {
                                                 {displayName.substring(0,2).toUpperCase()}
                                             </MuiAvatar>
                                             <Box sx={{ flexGrow: 1 }}>
-                                                <Typography variant="body2" sx={{ 
-                                                    fontWeight: 500 
-                                                }}>{displayName}</Typography>
+                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>{displayName}</Typography>
                                                 <Typography variant="caption" sx={{ color: '#9ca3af' }}>Participant</Typography>
                                             </Box>
                                             <Box className={styles.participantIcons}>
