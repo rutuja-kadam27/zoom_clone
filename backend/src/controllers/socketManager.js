@@ -79,6 +79,19 @@ export const connectToSocket = (server) => {
 
         })
 
+        socket.on("user-action", (actionType, value) => {
+            // Find the room this socket is in and broadcast the action to others
+            for (const [roomKey, socketIds] of Object.entries(connections)) {
+                if (socketIds.includes(socket.id)) {
+                    socketIds.forEach((id) => {
+                        if (id !== socket.id) {
+                            io.to(id).emit("user-action", socket.id, actionType, value);
+                        }
+                    });
+                }
+            }
+        })
+
         socket.on("disconnect", () => {
             console.log("CLIENT DISCONNECTED:", socket.id);
             
