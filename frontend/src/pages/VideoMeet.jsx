@@ -683,6 +683,20 @@ export default function VideoMeetComponent() {
                         stopScreenShare();
                         addNotification("Your screen sharing was stopped because another participant started presenting", "warning");
                     }
+
+                    // CRITICAL FIX: Refresh the video decoder on the receiver's side to prevent the video from freezing on the last screen frame
+                    if (value === false) {
+                        setTimeout(() => {
+                            const el = videoElementsRef.current[fromId];
+                            if (el && el.srcObject) {
+                                console.log(`[WebRTC] Refreshing video element for peer ${fromId} after screen share stopped`);
+                                const currentStream = el.srcObject;
+                                el.srcObject = null;
+                                el.srcObject = currentStream;
+                                el.play().catch(e => console.warn("Error playing video after refresh:", e));
+                            }
+                        }, 500);
+                    }
                 } else if (actionType === 'raise-hand') {
                     addNotification(`${displayName} ${value ? 'raised' : 'lowered'} their hand`, 'warning');
                 } else if (actionType === 'recording') {
