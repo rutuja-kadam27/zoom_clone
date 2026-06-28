@@ -112,7 +112,6 @@ export default function VideoMeetComponent() {
             if (!AudioContextClass) return null;
 
             const audioContext = new AudioContextClass();
-            // Check if stream has audio tracks
             if (stream.getAudioTracks().length === 0) return null;
 
             const source = audioContext.createMediaStreamSource(stream);
@@ -245,7 +244,6 @@ export default function VideoMeetComponent() {
             setVideo(true);
             setAudio(true);
 
-            // Set up local speaker monitoring
             setupLocalSpeakerMonitoring();
 
             console.log('Camera and Microphone permissions granted');
@@ -314,7 +312,6 @@ export default function VideoMeetComponent() {
         if (localVolumeCleanupRef.current) localVolumeCleanupRef.current();
         if (window.localStream && window.localStream.getAudioTracks().length > 0) {
             const cleanup = monitorAudioVolume(window.localStream, (vol) => {
-                // If microphone is muted in state, report 0 volume
                 volumesRef.current['local'] = audio ? vol : 0;
                 determineActiveSpeaker();
             });
@@ -350,11 +347,9 @@ export default function VideoMeetComponent() {
             console.log("Received remote track from:", socketListId, event.streams);
             const remoteStream = event.streams[0];
 
-            // If audio track is received, monitor its volume for active speaker detection
             if (event.track.kind === 'audio') {
                 if (pc.volumeCleanup) pc.volumeCleanup();
                 const cleanup = monitorAudioVolume(remoteStream, (vol) => {
-                    // If remote participant is muted, status will reflect it
                     const isMuted = participantsStatus[socketListId]?.audio === false;
                     volumesRef.current[socketListId] = isMuted ? 0 : vol;
                     determineActiveSpeaker();
@@ -455,9 +450,14 @@ export default function VideoMeetComponent() {
 
             socketRef.current.emit('join-call', window.location.href);
 
+            // Emit our username immediately on connection
+            socketRef.current.emit('user-action', 'username', username);
+            socketRef.current.emit('user-action', 'video', video);
+            socketRef.current.emit('user-action', 'audio', audio);
+
             socketRef.current.on('chat-message', addMessage);
 
-            // Sync peer actions (mic, camera, hand, screen, record)
+            // Sync peer actions (mic, camera, hand, screen, record, username)
             socketRef.current.on('user-action', (fromId, actionType, value) => {
                 setParticipantsStatus(prev => ({
                     ...prev,
@@ -467,30 +467,34 @@ export default function VideoMeetComponent() {
                     }
                 }));
 
-                const userLabel = `Participant (${fromId.substring(0, 4)})`;
+                // Get display name (use synced username if available)
+                const displayName = actionType === 'username' ? value : (participantsStatus[fromId]?.username || `Participant (${fromId.substring(0, 4)})`);
+
                 if (actionType === 'audio') {
-                    addNotification(`${userLabel} ${value ? 'unmuted' : 'muted'} their mic`, 'info');
+                    addNotification(`${displayName} ${value ? 'unmuted' : 'muted'} their mic`, 'info');
                     if (!value) {
                         volumesRef.current[fromId] = 0;
                         determineActiveSpeaker();
                     }
                 } else if (actionType === 'video') {
-                    addNotification(`${userLabel} turned their camera ${value ? 'on' : 'off'}`, 'info');
+                    addNotification(`${displayName} turned their camera ${value ? 'on' : 'off'}`, 'info');
                 } else if (actionType === 'screen') {
-                    addNotification(`${userLabel} ${value ? 'started' : 'stopped'} screen sharing`, 'info');
+                    addNotification(`${displayName} ${value ? 'started' : 'stopped'} screen sharing`, 'info');
                 } else if (actionType === 'raise-hand') {
-                    addNotification(`${userLabel} ${value ? 'raised' : 'lowered'} their hand`, 'warning');
+                    addNotification(`${displayName} ${value ? 'raised' : 'lowered'} their hand`, 'warning');
                 } else if (actionType === 'recording') {
-                    addNotification(`${userLabel} ${value ? 'started' : 'stopped'} recording the meeting`, 'error');
+                    addNotification(`${displayName} ${value ? 'started' : 'stopped'} recording the meeting`, 'error');
                     setRecording(value);
+                } else if (actionType === 'username') {
+                    addNotification(`${value} joined the meeting`, 'success');
                 }
             });
 
             socketRef.current.on('user-left', (id) => {
-                addNotification(`Participant left: ${id.substring(0, 4)}`, 'warning');
+                const displayName = participantsStatus[id]?.username || `Participant (${id.substring(0, 4)})`;
+                addNotification(`${displayName} left the meeting`, 'warning');
                 setVideos((prevVideos) => prevVideos.filter((v) => v.socketId !== id));
                 
-                // Cleanup volume monitoring for this user
                 delete volumesRef.current[id];
                 determineActiveSpeaker();
 
@@ -524,7 +528,12 @@ export default function VideoMeetComponent() {
                         }).catch(e => console.error("Error creating offer:", e));
                     });
                 } else {
-                    addNotification(`Participant joined: ${joinedUserId.substring(0, 4)}`, 'success');
+                    // We are an existing user. Send our current username and status to the new user so they can sync immediately.
+                    socketRef.current.emit('user-action', 'username', username);
+                    socketRef.current.emit('user-action', 'video', video);
+                    socketRef.current.emit('user-action', 'audio', audio);
+                    if (handRaised) socketRef.current.emit('user-action', 'raise-hand', handRaised);
+                    
                     if (!connectionsRef.current[joinedUserId]) {
                         initializePeerConnection(joinedUserId);
                     }
@@ -557,7 +566,6 @@ export default function VideoMeetComponent() {
         if (socketRef.current) {
             socketRef.current.emit('user-action', 'audio', nextAudioState);
         }
-        // Force volume monitor to report 0 if muted
         volumesRef.current['local'] = nextAudioState ? (volumesRef.current['local'] || 0) : 0;
         determineActiveSpeaker();
     };
@@ -722,7 +730,7 @@ export default function VideoMeetComponent() {
                                 <video
                                     ref={(ref) => {
                                         localVideoref.current = ref;
-                                        if (ref && window.localStream) {
+                                        if (ref && window.localStream && ref.srcObject !== window.localStream) {
                                             ref.srcObject = window.localStream;
                                         }
                                     }}
@@ -832,7 +840,7 @@ export default function VideoMeetComponent() {
                                 <video
                                     ref={(ref) => {
                                         localVideoref.current = ref;
-                                        if (ref && window.localStream) {
+                                        if (ref && window.localStream && ref.srcObject !== window.localStream) {
                                             ref.srcObject = window.localStream;
                                         }
                                     }}
@@ -872,14 +880,14 @@ export default function VideoMeetComponent() {
                                 const hasHand = status['raise-hand'] === true;
                                 const isSharing = status['screen'] === true;
                                 const isSpeaker = activeSpeaker === vid.socketId;
-                                const pName = `Participant (${vid.socketId.substring(0, 4)})`;
+                                const displayName = status['username'] || `Participant (${vid.socketId.substring(0, 4)})`;
 
                                 return (
                                     <Box className={`${styles.videoCard} ${isSpeaker ? styles.activeSpeaker : ''}`} key={vid.socketId}>
                                         <video
                                             data-socket={vid.socketId}
                                             ref={(ref) => {
-                                                if (ref && vid.stream) {
+                                                if (ref && vid.stream && ref.srcObject !== vid.stream) {
                                                     ref.srcObject = vid.stream;
                                                 }
                                             }}
@@ -889,7 +897,7 @@ export default function VideoMeetComponent() {
                                         ></video>
                                         <Box className={styles.videoLabel}>
                                             <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
-                                            <Typography variant="body2">{pName}</Typography>
+                                            <Typography variant="body2">{displayName}</Typography>
                                         </Box>
                                         
                                         {/* Status Icons */}
@@ -900,7 +908,7 @@ export default function VideoMeetComponent() {
 
                                         {isCamOff && (
                                             <Box className={styles.videoMutedOverlay}>
-                                                <Typography variant="h6">{pName.substring(13,15).toUpperCase()}</Typography>
+                                                <Typography variant="h6">{displayName.substring(0,2).toUpperCase()}</Typography>
                                             </Box>
                                         )}
 
@@ -1079,15 +1087,15 @@ export default function VideoMeetComponent() {
                                     const hasHand = status['raise-hand'] === true;
                                     const isMuted = status['audio'] === false;
                                     const isSharing = status['screen'] === true;
-                                    const pName = `Participant (${vid.socketId.substring(0, 4)})`;
+                                    const displayName = status['username'] || `Participant (${vid.socketId.substring(0, 4)})`;
 
                                     return (
                                         <Box className={styles.participantItem} key={vid.socketId}>
                                             <MuiAvatar sx={{ bgcolor: 'rgba(255,255,255,0.1)', width: 32, height: 32, fontSize: '0.9rem', mr: 1.5 }}>
-                                                {pName.substring(13,15).toUpperCase()}
+                                                {displayName.substring(0,2).toUpperCase()}
                                             </MuiAvatar>
                                             <Box sx={{ flexGrow: 1 }}>
-                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>{pName}</Typography>
+                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>{displayName}</Typography>
                                                 <Typography variant="caption" sx={{ color: '#9ca3af' }}>Participant</Typography>
                                             </Box>
                                             <Box className={styles.participantIcons}>
