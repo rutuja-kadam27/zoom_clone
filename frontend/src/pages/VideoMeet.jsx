@@ -15,6 +15,8 @@ import PanToolIcon from '@mui/icons-material/PanTool';
 import PeopleIcon from '@mui/icons-material/People';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import TimerIcon from '@mui/icons-material/Timer';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import LinkIcon from '@mui/icons-material/Link';
 import styles from "../styles/videoComponent.module.css";
 import server from '../environment';
 
@@ -33,6 +35,10 @@ export default function VideoMeetComponent() {
     const connectionsRef = useRef({});
     const localVideoref = useRef(null);
     const screenStreamRef = useRef(null);
+    
+    // Audio volume analysis refs
+    const volumesRef = useRef({});
+    const localVolumeCleanupRef = useRef(null);
 
     const [videoAvailable, setVideoAvailable] = useState(true);
     const [audioAvailable, setAudioAvailable] = useState(true);
@@ -48,6 +54,7 @@ export default function VideoMeetComponent() {
     const [elapsedTime, setElapsedTime] = useState(0);
     const [notifications, setNotifications] = useState([]);
     const [participantsStatus, setParticipantsStatus] = useState({});
+    const [activeSpeaker, setActiveSpeaker] = useState(null);
 
     const [showModal, setModal] = useState(false);
     const [messages, setMessages] = useState([]);
@@ -93,10 +100,61 @@ export default function VideoMeetComponent() {
         const id = Date.now() + Math.random().toString(36).substring(2, 9);
         setNotifications(prev => [...prev, { id, message: msg, type }]);
         
-        // Auto remove after 4 seconds
         setTimeout(() => {
             setNotifications(prev => prev.filter(n => n.id !== id));
         }, 4000);
+    };
+
+    // Real-Time Audio Level Analyzer for Active Speaker Detection
+    const monitorAudioVolume = (stream, onVolumeChange) => {
+        try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) return null;
+
+            const audioContext = new AudioContextClass();
+            // Check if stream has audio tracks
+            if (stream.getAudioTracks().length === 0) return null;
+
+            const source = audioContext.createMediaStreamSource(stream);
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+            
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            const interval = setInterval(() => {
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                const average = sum / dataArray.length;
+                onVolumeChange(average);
+            }, 250);
+
+            return () => {
+                clearInterval(interval);
+                audioContext.close().catch(() => {});
+            };
+        } catch (e) {
+            console.warn("Audio volume analysis error:", e);
+            return null;
+        }
+    };
+
+    const determineActiveSpeaker = () => {
+        let maxVolume = 12; // Audio threshold
+        let speaker = null;
+        for (const [id, vol] of Object.entries(volumesRef.current)) {
+            if (vol > maxVolume) {
+                maxVolume = vol;
+                speaker = id;
+            }
+        }
+        setActiveSpeaker(speaker);
     };
 
     const cleanupCall = () => {
@@ -112,12 +170,19 @@ export default function VideoMeetComponent() {
             screenStreamRef.current.getTracks().forEach(track => track.stop());
             screenStreamRef.current = null;
         }
+        if (localVolumeCleanupRef.current) {
+            localVolumeCleanupRef.current();
+            localVolumeCleanupRef.current = null;
+        }
         for (let id in connectionsRef.current) {
-            if (connectionsRef.current[id]) {
-                connectionsRef.current[id].close();
+            const pc = connectionsRef.current[id];
+            if (pc) {
+                if (pc.volumeCleanup) pc.volumeCleanup();
+                pc.close();
             }
         }
         connectionsRef.current = {};
+        volumesRef.current = {};
     };
 
     const createFallbackStream = () => {
@@ -179,6 +244,10 @@ export default function VideoMeetComponent() {
             setAudioAvailable(true);
             setVideo(true);
             setAudio(true);
+
+            // Set up local speaker monitoring
+            setupLocalSpeakerMonitoring();
+
             console.log('Camera and Microphone permissions granted');
         } catch (err) {
             console.warn('Failed to get both video and audio, trying individually...', err);
@@ -220,6 +289,9 @@ export default function VideoMeetComponent() {
                     if (localVideoref.current) {
                         localVideoref.current.srcObject = stream;
                     }
+                    if (hasAudio) {
+                        setupLocalSpeakerMonitoring();
+                    }
                 } else {
                     createFallbackStream();
                 }
@@ -235,6 +307,20 @@ export default function VideoMeetComponent() {
             setScreenAvailable(true);
         } else {
             setScreenAvailable(false);
+        }
+    };
+
+    const setupLocalSpeakerMonitoring = () => {
+        if (localVolumeCleanupRef.current) localVolumeCleanupRef.current();
+        if (window.localStream && window.localStream.getAudioTracks().length > 0) {
+            const cleanup = monitorAudioVolume(window.localStream, (vol) => {
+                // If microphone is muted in state, report 0 volume
+                volumesRef.current['local'] = audio ? vol : 0;
+                determineActiveSpeaker();
+            });
+            if (cleanup) {
+                localVolumeCleanupRef.current = cleanup;
+            }
         }
     };
 
@@ -263,6 +349,20 @@ export default function VideoMeetComponent() {
         pc.ontrack = (event) => {
             console.log("Received remote track from:", socketListId, event.streams);
             const remoteStream = event.streams[0];
+
+            // If audio track is received, monitor its volume for active speaker detection
+            if (event.track.kind === 'audio') {
+                if (pc.volumeCleanup) pc.volumeCleanup();
+                const cleanup = monitorAudioVolume(remoteStream, (vol) => {
+                    // If remote participant is muted, status will reflect it
+                    const isMuted = participantsStatus[socketListId]?.audio === false;
+                    volumesRef.current[socketListId] = isMuted ? 0 : vol;
+                    determineActiveSpeaker();
+                });
+                if (cleanup) {
+                    pc.volumeCleanup = cleanup;
+                }
+            }
 
             setVideos((prevVideos) => {
                 const videoExists = prevVideos.find(v => v.socketId === socketListId);
@@ -370,6 +470,10 @@ export default function VideoMeetComponent() {
                 const userLabel = `Participant (${fromId.substring(0, 4)})`;
                 if (actionType === 'audio') {
                     addNotification(`${userLabel} ${value ? 'unmuted' : 'muted'} their mic`, 'info');
+                    if (!value) {
+                        volumesRef.current[fromId] = 0;
+                        determineActiveSpeaker();
+                    }
                 } else if (actionType === 'video') {
                     addNotification(`${userLabel} turned their camera ${value ? 'on' : 'off'}`, 'info');
                 } else if (actionType === 'screen') {
@@ -385,13 +489,21 @@ export default function VideoMeetComponent() {
             socketRef.current.on('user-left', (id) => {
                 addNotification(`Participant left: ${id.substring(0, 4)}`, 'warning');
                 setVideos((prevVideos) => prevVideos.filter((v) => v.socketId !== id));
+                
+                // Cleanup volume monitoring for this user
+                delete volumesRef.current[id];
+                determineActiveSpeaker();
+
                 setParticipantsStatus(prev => {
                     const next = { ...prev };
                     delete next[id];
                     return next;
                 });
-                if (connectionsRef.current[id]) {
-                    connectionsRef.current[id].close();
+                
+                const pc = connectionsRef.current[id];
+                if (pc) {
+                    if (pc.volumeCleanup) pc.volumeCleanup();
+                    pc.close();
                     delete connectionsRef.current[id];
                 }
             });
@@ -445,6 +557,9 @@ export default function VideoMeetComponent() {
         if (socketRef.current) {
             socketRef.current.emit('user-action', 'audio', nextAudioState);
         }
+        // Force volume monitor to report 0 if muted
+        volumesRef.current['local'] = nextAudioState ? (volumesRef.current['local'] || 0) : 0;
+        determineActiveSpeaker();
     };
 
     const handleScreen = async () => {
@@ -528,6 +643,20 @@ export default function VideoMeetComponent() {
     const handleEndCall = () => {
         cleanupCall();
         window.location.href = "/home";
+    };
+
+    const copyMeetingCode = () => {
+        const code = window.location.pathname.substring(1);
+        navigator.clipboard.writeText(code)
+            .then(() => addNotification("Meeting code copied to clipboard!", "success"))
+            .catch(() => addNotification("Failed to copy meeting code", "error"));
+    };
+
+    const copyInviteLink = () => {
+        const link = window.location.href;
+        navigator.clipboard.writeText(link)
+            .then(() => addNotification("Invite link copied to clipboard!", "success"))
+            .catch(() => addNotification("Failed to copy invite link", "error"));
     };
 
     const addMessage = (data, sender, socketIdSender) => {
@@ -676,6 +805,19 @@ export default function VideoMeetComponent() {
                                 </Box>
                             )}
 
+                            {/* Meeting Code & Invite Links */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(255,255,255,0.03)', px: 2, py: 0.5, borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <Typography variant="body2" sx={{ fontWeight: 600, color: '#e5e7eb' }}>
+                                    Code: {window.location.pathname.substring(1)}
+                                </Typography>
+                                <IconButton onClick={copyMeetingCode} size="small" sx={{ color: '#9ca3af' }} title="Copy Meeting Code">
+                                    <ContentCopyIcon sx={{ fontSize: '1rem' }} />
+                                </IconButton>
+                                <IconButton onClick={copyInviteLink} size="small" sx={{ color: '#9ca3af' }} title="Copy Invite Link">
+                                    <LinkIcon sx={{ fontSize: '1.1rem' }} />
+                                </IconButton>
+                            </Box>
+
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <PeopleIcon sx={{ color: '#9ca3af', fontSize: '1.2rem' }} />
                                 <Typography variant="body2" sx={{ fontWeight: 500, color: '#9ca3af' }}>
@@ -686,7 +828,7 @@ export default function VideoMeetComponent() {
 
                         <Box className={styles.videoGrid}>
                             {/* Local Video Card */}
-                            <Box className={styles.videoCard}>
+                            <Box className={`${styles.videoCard} ${activeSpeaker === 'local' ? styles.activeSpeaker : ''}`}>
                                 <video
                                     ref={(ref) => {
                                         localVideoref.current = ref;
@@ -729,10 +871,11 @@ export default function VideoMeetComponent() {
                                 const isCamOff = status['video'] === false;
                                 const hasHand = status['raise-hand'] === true;
                                 const isSharing = status['screen'] === true;
+                                const isSpeaker = activeSpeaker === vid.socketId;
                                 const pName = `Participant (${vid.socketId.substring(0, 4)})`;
 
                                 return (
-                                    <Box className={styles.videoCard} key={vid.socketId}>
+                                    <Box className={`${styles.videoCard} ${isSpeaker ? styles.activeSpeaker : ''}`} key={vid.socketId}>
                                         <video
                                             data-socket={vid.socketId}
                                             ref={(ref) => {

@@ -607,3 +607,10 @@
 .btnRecording:hover {
     background: rgba(239, 68, 68, 0.2) !important;
 }
+
+/* --- ACTIVE SPEAKER HIGHLIGHT --- */
+.activeSpeaker {
+    border: 2px solid #ff9839 !important;
+    box-shadow: 0 0 20px rgba(255, 152, 57, 0.6) !important;
+    transform: scale(1.02) !important;
+}
