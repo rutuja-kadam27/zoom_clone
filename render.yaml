@@ -1,0 +1,23 @@
+services:
+  # Backend Web Service
+  - type: web
+    name: meetsphere-backend
+    env: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: MONGO_URL
+        value: mongodb+srv://rutujakadam2727_db_user:HmSQP1m0ECQMM34R@clustervc.xwhgwpb.mongodb.net/?appName=ClusterVc
+      - key: PORT
+        value: 10000
+
+  # Frontend Static Site
+  - type: web
+    name: meetsphere-frontend
+    env: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishDir: build
