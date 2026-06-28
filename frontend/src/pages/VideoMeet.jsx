@@ -550,8 +550,17 @@ export default function VideoMeetComponent() {
             }
         };
 
+        // Add local tracks. If currently screen sharing, add the screen sharing track instead of the camera video track.
         if (window.localStream) {
             window.localStream.getTracks().forEach(track => {
+                if (track.kind === 'video' && screen && screenStreamRef.current) {
+                    const screenTrack = screenStreamRef.current.getVideoTracks()[0];
+                    if (screenTrack) {
+                        pc.addTrack(screenTrack, screenStreamRef.current);
+                        console.log(`[WebRTC] Added screen share track (instead of camera) for new peer: ${socketListId}`);
+                        return;
+                    }
+                }
                 pc.addTrack(track, window.localStream);
             });
         }
@@ -579,7 +588,6 @@ export default function VideoMeetComponent() {
                 console.log(`[WebRTC] Offer received from peer: ${fromId}`);
                 pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
                     .then(() => {
-                        // Flush any queued ICE candidates
                         if (pc.iceQueue && pc.iceQueue.length > 0) {
                             pc.iceQueue.forEach(candidate => {
                                 pc.addIceCandidate(new RTCIceCandidate(candidate))
@@ -639,8 +647,6 @@ export default function VideoMeetComponent() {
             console.log("Connected to signaling server. Socket ID:", socketRef.current.id);
             socketIdRef.current = socketRef.current.id;
 
-            // CRITICAL FIX: Emit ONLY the clean meeting code, NOT the full window.location.href.
-            // This prevents devices using different hostnames (e.g. localhost vs 192.168.x.x) from being placed in separate rooms.
             const meetingCode = getMeetingCode();
             socketRef.current.emit('join-call', meetingCode);
 
@@ -671,6 +677,12 @@ export default function VideoMeetComponent() {
                     addNotification(`${displayName} turned their camera ${value ? 'on' : 'off'}`, 'info');
                 } else if (actionType === 'screen') {
                     addNotification(`${displayName} ${value ? 'started' : 'stopped'} screen sharing`, 'info');
+                    
+                    // CRITICAL FIX: If someone else starts presenting, automatically stop our screen share
+                    if (value === true && screen) {
+                        stopScreenShare();
+                        addNotification("Your screen sharing was stopped because another participant started presenting", "warning");
+                    }
                 } else if (actionType === 'raise-hand') {
                     addNotification(`${displayName} ${value ? 'raised' : 'lowered'} their hand`, 'warning');
                 } else if (actionType === 'recording') {
