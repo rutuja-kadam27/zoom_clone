@@ -13,7 +13,7 @@ const IS_PROD = !isLocalhost(window.location.hostname);
 
 // Dynamically use the host's IP for local testing so mobile devices connect to the laptop's backend
 const server = IS_PROD ?
-    (import.meta.env.VITE_BACKEND_URL || "https://meetsphere-backend.onrender.com") :
+    (import.meta.env.VITE_BACKEND_URL || "https://meetsphere-backend-9ekd.onrender.com") :
     `http://${window.location.hostname}:8000`;
 
 export default server;
