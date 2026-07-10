@@ -1007,6 +1007,7 @@ export default function VideoMeetComponent() {
                                     className={styles.lobbyVideo}
                                     autoPlay
                                     muted
+                                    playsInline
                                 ></video>
                             )}
                             
@@ -1121,6 +1122,7 @@ export default function VideoMeetComponent() {
                                                 className={styles.videoElement} 
                                                 autoPlay 
                                                 muted
+                                                playsInline
                                             ></video>
                                             <Box className={styles.videoLabel}>
                                                 <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
@@ -1207,6 +1209,7 @@ export default function VideoMeetComponent() {
                                                 className={styles.videoElement} 
                                                 autoPlay 
                                                 muted
+                                                playsInline
                                             ></video>
                                             <Box className={styles.videoLabel}>
                                                 <Typography variant="caption">{username} (You)</Typography>
@@ -1280,6 +1283,7 @@ export default function VideoMeetComponent() {
                                         className={styles.videoElement} 
                                         autoPlay 
                                         muted
+                                        playsInline
                                     ></video>
                                     <Box className={styles.videoLabel}>
                                         <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
