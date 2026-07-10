@@ -492,6 +492,31 @@ export default function VideoMeetComponent() {
         connectToSocketServer();
     };
 
+    const addOrUpdateRemoteStream = (socketListId, stream) => {
+        setVideos((prevVideos) => {
+            const videoExists = prevVideos.find(v => v.socketId === socketListId);
+            
+            if (videoExists) {
+                // Skip if the stream reference is identical to avoid unnecessary renders
+                if (videoExists.stream === stream) return prevVideos;
+
+                videoRef.current = prevVideos.map(v => 
+                    v.socketId === socketListId ? { ...v, stream: stream } : v
+                );
+                return videoRef.current;
+            } else {
+                const newVideo = {
+                    socketId: socketListId,
+                    stream: stream,
+                    autoplay: true,
+                    playsinline: true
+                };
+                videoRef.current = [...prevVideos, newVideo];
+                return videoRef.current;
+            }
+        });
+    };
+
     const initializePeerConnection = (socketListId) => {
         console.log(`[WebRTC] Peer created for: ${socketListId}`);
         const pc = new RTCPeerConnection(peerConfigConnections);
@@ -506,55 +531,66 @@ export default function VideoMeetComponent() {
             }
         };
 
-        // Use onaddstream to match the Apna College Zoom repository API
-        pc.onaddstream = (event) => {
-            console.log(`[WebRTC] Remote stream received from peer: ${socketListId}`);
-            
-            setVideos((prevVideos) => {
-                const videoExists = prevVideos.find(v => v.socketId === socketListId);
-                
-                if (videoExists) {
-                    const existingStream = event.stream;
-                    videoRef.current = prevVideos.map(v => 
-                        v.socketId === socketListId ? { ...v, stream: existingStream } : v
-                    );
-                    return videoRef.current;
-                } else {
-                    const newStream = event.stream;
-                    const newVideo = {
-                        socketId: socketListId,
-                        stream: newStream,
-                        autoplay: true,
-                        playsinline: true
-                    };
-                    videoRef.current = [...prevVideos, newVideo];
-                    return videoRef.current;
-                }
-            });
+        // Handle incoming tracks (modern standard)
+        pc.ontrack = (event) => {
+            console.log(`[WebRTC] Remote track received from peer: ${socketListId}`);
+            const remoteStream = event.streams[0];
+            if (remoteStream) {
+                addOrUpdateRemoteStream(socketListId, remoteStream);
 
-            // Start audio volume monitoring
-            if (event.stream.getAudioTracks().length > 0) {
-                if (pc.volumeCleanup) pc.volumeCleanup();
-                const cleanup = monitorAudioVolume(event.stream, (vol) => {
-                    const isMuted = participantsStatus[socketListId]?.audio === false;
-                    volumesRef.current[socketListId] = isMuted ? 0 : vol;
-                    determineActiveSpeaker();
-                });
-                if (cleanup) {
-                    pc.volumeCleanup = cleanup;
+                // Start audio volume monitoring
+                if (remoteStream.getAudioTracks().length > 0) {
+                    if (pc.volumeCleanup) pc.volumeCleanup();
+                    const cleanup = monitorAudioVolume(remoteStream, (vol) => {
+                        const isMuted = participantsStatus[socketListId]?.audio === false;
+                        volumesRef.current[socketListId] = isMuted ? 0 : vol;
+                        determineActiveSpeaker();
+                    });
+                    if (cleanup) {
+                        pc.volumeCleanup = cleanup;
+                    }
                 }
             }
         };
 
-        // Add local stream matching the Apna College Zoom repository's addStream call.
-        // If currently screen sharing, add the screen sharing stream instead of the camera stream.
-        if (screen && window.localStream) {
-            // Screen sharing uses getDisplayMedia stream
-            const activeStream = window.localStream;
-            pc.addStream(activeStream);
-            console.log(`[WebRTC] Added screen share stream (instead of camera) for new peer: ${socketListId}`);
-        } else if (window.localStream) {
-            pc.addStream(window.localStream);
+        // Handle incoming stream (legacy fallback for compatibility)
+        pc.onaddstream = (event) => {
+            console.log(`[WebRTC] Remote stream received from peer (legacy): ${socketListId}`);
+            if (event.stream) {
+                addOrUpdateRemoteStream(socketListId, event.stream);
+
+                // Start audio volume monitoring
+                if (event.stream.getAudioTracks().length > 0) {
+                    if (pc.volumeCleanup) pc.volumeCleanup();
+                    const cleanup = monitorAudioVolume(event.stream, (vol) => {
+                        const isMuted = participantsStatus[socketListId]?.audio === false;
+                        volumesRef.current[socketListId] = isMuted ? 0 : vol;
+                        determineActiveSpeaker();
+                    });
+                    if (cleanup) {
+                        pc.volumeCleanup = cleanup;
+                    }
+                }
+            }
+        };
+
+        // Add local stream or tracks
+        if (window.localStream) {
+            try {
+                // Try modern addTrack first
+                window.localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, window.localStream);
+                });
+                console.log(`[WebRTC] Added tracks to peer: ${socketListId}`);
+            } catch (e) {
+                try {
+                    // Fallback to legacy addStream
+                    pc.addStream(window.localStream);
+                    console.log(`[WebRTC] Fallback: Added stream to peer: ${socketListId}`);
+                } catch (err) {
+                    console.error("Failed to add local media to peer connection:", err);
+                }
+            }
         }
 
         return pc;
