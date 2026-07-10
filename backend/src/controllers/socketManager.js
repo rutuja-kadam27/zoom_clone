@@ -7,9 +7,11 @@ let timeOnline = {}
 export const connectToSocket = (server) => {
     const io = new Server(server, {
         cors: {
-            origin: "*",
+            origin: (origin, callback) => {
+                // Dynamically allow any requesting origin to support credentials: true
+                callback(null, true);
+            },
             methods: ["GET", "POST"],
-            allowedHeaders: ["*"],
             credentials: true
         }
     });
