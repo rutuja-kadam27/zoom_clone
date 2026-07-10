@@ -15,6 +15,10 @@ function HomeComponent() {
 
     const {addToUserHistory, handleLogout} = useContext(AuthContext);
     let handleJoinVideoCall = async () => {
+        if (!meetingCode.trim()) {
+            alert("Please enter a valid meeting code");
+            return;
+        }
         await addToUserHistory(meetingCode)
         navigate(`/${meetingCode}`)
     }
