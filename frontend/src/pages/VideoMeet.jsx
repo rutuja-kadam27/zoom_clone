@@ -80,6 +80,28 @@ export default function VideoMeetComponent() {
 
     const videoRef = useRef([]);
 
+    const participantsStatusRef = useRef({});
+    const usernameRef = useRef(username);
+    const videoRefState = useRef(video);
+    const audioRefState = useRef(audio);
+    const handRaisedRef = useRef(handRaised);
+
+    useEffect(() => {
+        usernameRef.current = username;
+    }, [username]);
+
+    useEffect(() => {
+        videoRefState.current = video;
+    }, [video]);
+
+    useEffect(() => {
+        audioRefState.current = audio;
+    }, [audio]);
+
+    useEffect(() => {
+        handRaisedRef.current = handRaised;
+    }, [handRaised]);
+
     // Dynamic Script Loader for MediaPipe Face Detection
     const loadScript = (src) => {
         return new Promise((resolve, reject) => {
@@ -678,22 +700,26 @@ export default function VideoMeetComponent() {
             const meetingCode = getMeetingCode();
             socketRef.current.emit('join-call', meetingCode);
 
-            socketRef.current.emit('user-action', 'username', username);
-            socketRef.current.emit('user-action', 'video', video);
-            socketRef.current.emit('user-action', 'audio', audio);
+            socketRef.current.emit('user-action', 'username', usernameRef.current);
+            socketRef.current.emit('user-action', 'video', videoRefState.current);
+            socketRef.current.emit('user-action', 'audio', audioRefState.current);
 
             socketRef.current.on('chat-message', addMessage);
 
             socketRef.current.on('user-action', (fromId, actionType, value) => {
-                setParticipantsStatus(prev => ({
-                    ...prev,
-                    [fromId]: {
-                        ...prev[fromId],
-                        [actionType]: value
-                    }
-                }));
+                setParticipantsStatus(prev => {
+                    const updated = {
+                        ...prev,
+                        [fromId]: {
+                            ...prev[fromId],
+                            [actionType]: value
+                        }
+                    };
+                    participantsStatusRef.current = updated;
+                    return updated;
+                });
 
-                const displayName = actionType === 'username' ? value : (participantsStatus[fromId]?.username || `Participant (${fromId.substring(0, 4)})`);
+                const displayName = actionType === 'username' ? value : (participantsStatusRef.current[fromId]?.username || `Participant (${fromId.substring(0, 4)})`);
 
                 if (actionType === 'audio') {
                     addNotification(`${displayName} ${value ? 'unmuted' : 'muted'} their mic`, 'info');
@@ -736,7 +762,7 @@ export default function VideoMeetComponent() {
             });
 
             socketRef.current.on('user-left', (id) => {
-                const displayName = participantsStatus[id]?.username || `Participant (${id.substring(0, 4)})`;
+                const displayName = participantsStatusRef.current[id]?.username || `Participant (${id.substring(0, 4)})`;
                 addNotification(`${displayName} left the meeting`, 'warning');
                 console.log(`[Socket] User left: ${id}`);
                 
@@ -755,6 +781,7 @@ export default function VideoMeetComponent() {
                 setParticipantsStatus(prev => {
                     const next = { ...prev };
                     delete next[id];
+                    participantsStatusRef.current = next;
                     return next;
                 });
                 
@@ -799,11 +826,11 @@ export default function VideoMeetComponent() {
                         }).catch(e => console.error("Error creating offer:", e));
                     }
                 } else {
-                    // Send our state to the newly joined user
-                    socketRef.current.emit('user-action', 'username', username);
-                    socketRef.current.emit('user-action', 'video', video);
-                    socketRef.current.emit('user-action', 'audio', audio);
-                    if (handRaised) socketRef.current.emit('user-action', 'raise-hand', handRaised);
+                    // Send our state to the newly joined user using refs to avoid stale closure issues
+                    socketRef.current.emit('user-action', 'username', usernameRef.current);
+                    socketRef.current.emit('user-action', 'video', videoRefState.current);
+                    socketRef.current.emit('user-action', 'audio', audioRefState.current);
+                    if (handRaisedRef.current) socketRef.current.emit('user-action', 'raise-hand', handRaisedRef.current);
                 }
             });
         });
