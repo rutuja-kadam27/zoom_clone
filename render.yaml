@@ -9,23 +9,22 @@ services:
     startCommand: npm start
     envVars:
       - key: MONGO_URL
-        value: mongodb+srv://rutujakadam2727_db_user:HmSQP1m0ECQMM34R@clustervc.xwhgwpb.mongodb.net/?appName=ClusterVc
+        value: "mongodb+srv://rutujakadam2727_db_user:HmSQP1m0ECQMM34R@clustervc.xwhgwpb.mongodb.net/?appName=ClusterVc"
       - key: PORT
-        value: 10000
+        value: "10000"
       - key: NODE_VERSION
-        value: 20
+        value: "20"
 
   # Frontend Static Site
-  - type: web
+  - type: static
     name: meetsphere-frontend
-    env: static
     plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
     publishDir: build
     envVars:
       - key: NODE_VERSION
-        value: 20
+        value: "20"
     routes:
       - type: rewrite
         source: /*
